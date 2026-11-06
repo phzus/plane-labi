@@ -67,3 +67,6 @@ temp/
 build/
 node_modules/
 README.md
+
+# Labi modification: the E2E harness is not part of any image
+deployments/labi/e2e

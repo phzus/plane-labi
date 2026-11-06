@@ -1,0 +1,11 @@
+{
+  "name": "labi-e2e",
+  "private": true,
+  "description": "Labi modification: browser E2E gate for Mensagens (isolated from the monorepo). See LABI-CHANGES.md.",
+  "license": "AGPL-3.0-only",
+  "devDependencies": {
+    "@axe-core/playwright": "4.10.1",
+    "@playwright/test": "1.52.0",
+    "ws": "8.18.2"
+  }
+}
