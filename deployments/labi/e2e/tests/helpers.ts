@@ -27,10 +27,28 @@ const openPages: { user: string; page: Page }[] = [];
  * browser steal window focus from each other, and the chat only marks messages read in a focused tab,
  * which is what each real person on their own machine has. Playwright still records its trace (config).
  */
+// Each person gets a distinct client IP (as on their own machine). All test browsers otherwise share the
+// Docker gateway IP and trip Plane's upstream anonymous throttle on /api/instances/ (30/min per IP).
+export const CLIENT_IP: Record<TUser, string> = {
+  ana: "198.51.100.11",
+  bruno: "198.51.100.12",
+  carla: "198.51.100.13",
+  dani: "198.51.100.14",
+  gil: "198.51.100.15",
+};
+
 export async function as(browser: Browser, user: TUser, options: BrowserContextOptions = {}) {
   const own = await browser.browserType().launch();
   const { baseURL, locale, timezoneId, viewport } = test.info().project.use;
-  const context = await own.newContext({ baseURL, locale, timezoneId, viewport, storageState: authFile(user), ...options });
+  const context = await own.newContext({
+    baseURL,
+    locale,
+    timezoneId,
+    viewport,
+    storageState: authFile(user),
+    extraHTTPHeaders: { "X-Forwarded-For": CLIENT_IP[user] },
+    ...options,
+  });
   const page = await context.newPage();
   openPages.push({ user, page });
   return page;
@@ -46,7 +64,10 @@ test.afterEach(async ({}, testInfo) => {
       await shot(page, `FAIL-${slug}-${i}-${user}`).catch(() => undefined);
     }
     await context.close().catch(() => undefined); // lets Playwright keep this context's trace on failure
-    await context.browser()?.close().catch(() => undefined);
+    await context
+      .browser()
+      ?.close()
+      .catch(() => undefined);
   }
 });
 
@@ -100,7 +121,11 @@ export async function startConversation(p: Page, people: TUser[], groupName?: st
 /** Full-page Mensagens: opens the conversation named `title` from the list. */
 export async function openFromList(p: Page, title: string) {
   if (!p.url().includes(`/${SLUG}/messages`)) await p.goto(`/${SLUG}/messages/`);
-  await p.locator("aside").getByRole("button", { name: new RegExp(title) }).first().click();
+  await p
+    .locator("aside")
+    .getByRole("button", { name: new RegExp(title) })
+    .first()
+    .click();
   await expect(p.getByRole("heading", { level: 2, name: title })).toBeVisible();
   await expect(log(p)).toHaveAttribute("aria-busy", "false");
 }

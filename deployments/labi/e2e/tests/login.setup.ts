@@ -1,11 +1,11 @@
 // Labi modification: browser E2E gate for Mensagens. See LABI-CHANGES.md.
 // Real UI login (email -> password) for every seeded account, each in its own browser context.
 import { expect, test } from "@playwright/test";
-import { authFile, shot, SLUG, users, type TUser } from "./helpers";
+import { authFile, CLIENT_IP, shot, SLUG, users, type TUser } from "./helpers";
 
 for (const user of ["ana", "bruno", "carla", "dani", "gil"] as TUser[]) {
   test(`login: ${user} entra pela tela de login`, async ({ browser }) => {
-    const context = await browser.newContext();
+    const context = await browser.newContext({ extraHTTPHeaders: { "X-Forwarded-For": CLIENT_IP[user] } });
     const page = await context.newPage();
     const { email, password } = users()[user];
     await page.goto("/");
