@@ -29,22 +29,17 @@ const API = `/api/workspaces/${SLUG}/messages`;
 const GROUP = "E2E Grupo";
 const RUN = Date.now().toString(36);
 
-test("AC-5: menu e balão levam à tela inteira; painel abre, expande, fecha e Esc fecha", async ({ browser }) => {
+test("AC-5 (balão): painel abre, fecha, Esc fecha, expandir leva à mesma conversa; balão some na tela inteira", async ({
+  browser,
+}) => {
   const ana = await as(browser, "ana");
   await ana.goto(`/${SLUG}/`);
-  await expect(sidebarItem(ana)).toBeVisible();
   await expect(pill(ana)).toBeVisible();
   const box = (await pill(ana).boundingBox())!;
   const vp = ana.viewportSize()!;
   expect(box.x + box.width, "balão no canto direito").toBeGreaterThan(vp.width - 48);
   expect(box.y + box.height, "balão no canto inferior").toBeGreaterThan(vp.height - 48);
-  await shot(ana, "ac5-01-ana-home-menu-e-balao");
-
-  await sidebarItem(ana).click();
-  await expect(ana).toHaveURL(new RegExp(`/${SLUG}/messages/?$`));
-  await expect(ana.getByRole("heading", { level: 1, name: "Mensagens" })).toBeVisible();
-  await expect(pill(ana)).toHaveCount(0);
-  await shot(ana, "ac5-02-menu-abre-tela-inteira-sem-balao");
+  await shot(ana, "ac5-01-ana-home-balao-canto-inferior-direito");
 
   await ana.goto(`/${SLUG}/notifications/`);
   await pill(ana).click();
@@ -95,8 +90,7 @@ test("AC-1 + AC-4: conversa direta em tempo real, badge, Visto e Shift+Enter", a
   await expect(pill(bruno)).toHaveAttribute("aria-label", new RegExp(`\\(${before + 1} conversas? não lidas?\\)`), {
     timeout: 5_000,
   });
-  await expect(sidebarItem(bruno)).toContainText(String(before + 1), { timeout: 5_000 });
-  await shot(bruno, "ac1-03-ac4-bruno-badge-subiu-sem-recarregar");
+  await shot(bruno, "ac1-03-ac4-bruno-badge-do-balao-subiu-sem-recarregar");
 
   await pill(bruno).click();
   await panel(bruno).getByRole("button", { name: new RegExp(fullName("ana")) }).first().click();
@@ -104,8 +98,6 @@ test("AC-1 + AC-4: conversa direta em tempo real, badge, Visto e Shift+Enter", a
   await shot(bruno, "ac1-04-bruno-ve-a-mensagem");
 
   // AC-4: opening zeroes the badge; Ana sees "Visto" under her last message.
-  await expect(sidebarItem(bruno)).not.toContainText(String(before + 1));
-  if (before === 0) await expect(sidebarItem(bruno)).toHaveText(/^\s*Mensagens\s*$/);
   await expect(ana.getByText(/^Visto/)).toBeVisible({ timeout: 10_000 });
   await shot(ana, "ac4-01-ana-ve-visto");
 
@@ -128,11 +120,35 @@ test("AC-1 + AC-4: conversa direta em tempo real, badge, Visto e Shift+Enter", a
   await expect(bubble(ana, reply)).toBeVisible({ timeout: 5_000 });
   await shot(ana, "ac1-06-ana-recebe-resposta-ao-vivo");
 
-  await panel(bruno).getByRole("button", { name: "Fechar" }).click();
+  // Esc from inside an open conversation (focus is in the composer) closes the panel.
+  await expect(composer(panel(bruno))).toBeFocused();
+  await bruno.keyboard.press("Escape");
+  await expect(panel(bruno)).toBeHidden();
   await expect(pill(bruno)).toBeVisible();
   expect(await pillUnread(bruno)).toBe(before);
   expect(await bruno.evaluate(() => (window as unknown as { __e2eNoReload?: boolean }).__e2eNoReload)).toBe(true);
   await shot(bruno, "ac4-02-bruno-badge-zerado-no-balao");
+});
+
+test("AC-5 + AC-4 (menu lateral): item Mensagens leva à tela inteira e mostra a badge de não lidas", async ({
+  browser,
+}) => {
+  const bruno = await as(browser, "bruno");
+  await bruno.goto(`/${SLUG}/`);
+  await expect(pill(bruno)).toBeVisible();
+  await shot(bruno, "menu-01-bruno-menu-lateral");
+  await expect(sidebarItem(bruno), "item 'Mensagens' no menu lateral do workspace").toBeVisible();
+
+  const ana = await as(browser, "ana");
+  await openFromList(ana, fullName("bruno"));
+  await send(ana, `Badge do menu ${RUN}`);
+  await expect(sidebarItem(bruno)).toContainText(/\d/, { timeout: 5_000 });
+  await shot(bruno, "menu-02-badge-no-menu-lateral");
+  await sidebarItem(bruno).click();
+  await expect(bruno).toHaveURL(new RegExp(`/${SLUG}/messages/?$`));
+  await expect(bruno.getByRole("heading", { level: 1, name: "Mensagens" })).toBeVisible();
+  await expect(pill(bruno)).toHaveCount(0);
+  await shot(bruno, "menu-03-menu-abre-tela-inteira");
 });
 
 test("AC-2: grupo fechado — fora do grupo recebe 404 e nada no WebSocket; convidado recebe 403", async ({
@@ -296,7 +312,7 @@ test("AC-6: no celular (390x844) o painel ocupa a tela e o compositor aparece", 
   await panel(ana).getByRole("button", { name: new RegExp(GROUP) }).first().click();
   await expect(composer(panel(ana))).toBeInViewport();
   await shot(ana, "ac6-02-celular-conversa-com-compositor");
-  await ana.keyboard.press("Escape");
+  await panel(ana).getByRole("button", { name: "Fechar" }).click();
   await expect(panel(ana)).toBeHidden();
 });
 

@@ -9,8 +9,11 @@ const walk = (suite) => {
   for (const spec of suite.specs ?? []) {
     for (const t of spec.tests) {
       const last = t.results.at(-1) ?? { status: "skipped", attachments: [] };
-      const evidence = last.attachments.map((a) => (a.path ? a.path.split(/[\\/]/).pop() : a.name));
-      const error = last.errors?.[0]?.message?.split("\n")[0]?.replace(/\x1b\[[0-9;]*m/g, "") ?? "";
+      // Screenshots are attached under their artifacts/screens name; traces/error-context keep theirs.
+      const evidence = last.attachments.map((a) => (a.contentType === "image/png" ? `${a.name}.png` : a.name));
+      const error = (last.errors ?? [])
+        .map((e) => (e.message ?? "").replace(/\x1b\[[0-9;]*m/g, "").split("\n").slice(0, 2).join(" "))
+        .join(" / ");
       rows.push({ title: spec.title, status: last.status === "passed" ? "PASS" : "FAIL", evidence, error });
     }
   }
@@ -26,7 +29,7 @@ const md = [
   "| Teste | Resultado | Evidências | Erro |",
   "|---|---|---|---|",
   ...rows.map(
-    (r) => `| ${r.title} | **${r.status}** | ${r.evidence.join("<br>")} | ${r.error.replace(/\|/g, "\\|").slice(0, 300)} |`
+    (r) => `| ${r.title} | **${r.status}** | ${r.evidence.join("<br>")} | ${r.error.replace(/\|/g, "\\|").slice(0, 500)} |`
   ),
   "",
   `Total: ${rows.filter((r) => r.status === "PASS").length}/${rows.length} PASS`,
