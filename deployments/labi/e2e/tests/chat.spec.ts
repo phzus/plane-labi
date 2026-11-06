@@ -312,6 +312,15 @@ test("AC-6: no celular (390x844) o painel ocupa a tela e o compositor aparece", 
   await panel(ana).getByRole("button", { name: new RegExp(GROUP) }).first().click();
   await expect(composer(panel(ana))).toBeInViewport();
   await shot(ana, "ac6-02-celular-conversa-com-compositor");
+  // The panel header (back / expand / close) must be reachable by touch, not covered by anything.
+  const hit = await panel(ana)
+    .getByRole("button", { name: "Fechar" })
+    .evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return el.contains(top) ? "ok" : `coberto por: ${(top?.outerHTML ?? "nada").slice(0, 160)}`;
+    });
+  expect(hit, "botão Fechar do painel acessível ao toque no celular").toBe("ok");
   await panel(ana).getByRole("button", { name: "Fechar" }).click();
   await expect(panel(ana)).toBeHidden();
 });

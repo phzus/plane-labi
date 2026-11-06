@@ -22,9 +22,16 @@ export async function shot(page: Page, name: string) {
 
 const openPages: { user: string; page: Page }[] = [];
 
-/** A separate browser context (own cookies) logged in as `user`. */
+/**
+ * `user` logged in, in a browser of their own (own cookies AND own window focus). Contexts sharing one
+ * browser steal window focus from each other, and the chat only marks messages read in a focused tab,
+ * which is what each real person on their own machine has.
+ */
 export async function as(browser: Browser, user: TUser, options: BrowserContextOptions = {}) {
-  const context = await browser.newContext({ storageState: authFile(user), ...options });
+  const own = await browser.browserType().launch();
+  const { baseURL, locale, timezoneId, viewport } = test.info().project.use;
+  const context = await own.newContext({ baseURL, locale, timezoneId, viewport, storageState: authFile(user), ...options });
+  await context.tracing.start({ screenshots: true, snapshots: true });
   const page = await context.newPage();
   openPages.push({ user, page });
   return page;
@@ -32,12 +39,17 @@ export async function as(browser: Browser, user: TUser, options: BrowserContextO
 
 test.afterEach(async ({}, testInfo) => {
   const pages = openPages.splice(0);
+  const failed = testInfo.status !== testInfo.expectedStatus;
   for (const [i, { user, page }] of pages.entries()) {
-    if (testInfo.status !== testInfo.expectedStatus && !page.isClosed()) {
+    const context = page.context();
+    if (failed && !page.isClosed()) {
       const slug = testInfo.title.split(":")[0].replace(/[^\w-]+/g, "-");
       await shot(page, `FAIL-${slug}-${i}-${user}`).catch(() => undefined);
+      const trace = testInfo.outputPath(`trace-${i}-${user}.zip`);
+      await context.tracing.stop({ path: trace }).catch(() => undefined);
+      await testInfo.attach(`trace-${i}-${user}`, { path: trace, contentType: "application/zip" }).catch(() => undefined);
     }
-    await page.context().close().catch(() => undefined);
+    await context.browser()?.close().catch(() => undefined);
   }
 });
 
