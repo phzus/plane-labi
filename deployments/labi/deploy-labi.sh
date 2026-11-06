@@ -5,6 +5,8 @@
 # The only accepted input is "deploy sha-<40 hex>". Anything else is refused.
 # Steps: lock -> backup -> pull images -> migrate -> recreate app services -> smoke -> rollback on failure.
 set -euo pipefail
+# Finish (or roll back) on the server even if the CI connection drops mid-deploy.
+trap '' HUP
 
 STACK_DIR="${STACK_DIR:-/opt/stacks/plane-labi}"
 IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/phzus/plane-labi}"

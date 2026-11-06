@@ -176,7 +176,8 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/labi'
     needs: [images, e2e]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The shared VPS pulls images slowly (live is ~1.7 GB); the server script ignores SIGHUP anyway.
+    timeout-minutes: 90
     environment: production
     permissions:
       contents: read
@@ -194,7 +195,7 @@ jobs:
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           # The key is pinned server-side to a forced command; this string is only its argument.
           # stdin carries this job's short-lived token (packages:read) so the server can pull the images.
-          printf '%s\n' "$GHCR_PULL_TOKEN" | ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "root@${DEPLOY_HOST}" "deploy sha-${GITHUB_SHA}"
+          printf '%s\n' "$GHCR_PULL_TOKEN" | ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 "root@${DEPLOY_HOST}" "deploy sha-${GITHUB_SHA}"
       - name: Clean up key
         if: always()
         run: rm -f ~/.ssh/deploy
