@@ -58,8 +58,22 @@ rollback() {
 }
 
 echo "DEPLOY_START $TAG (previous ${prev_prefix:-makeplane/plane}:${prev_tag:-v1.4.3})"
+
+# Registry auth: CI sends its short-lived job token (packages:read) on stdin. It is used from a
+# throwaway Docker config that is deleted on exit, so no credential is stored on the server.
+GHCR_TOKEN=""
+read -r -t 10 GHCR_TOKEN || true
+PULL_CONFIG="$(mktemp -d)"
+trap 'rm -rf "$PULL_CONFIG"' EXIT
+if [[ -n "$GHCR_TOKEN" ]]; then
+  printf '%s' "$GHCR_TOKEN" | DOCKER_CONFIG="$PULL_CONFIG" docker login ghcr.io -u "${GHCR_USER:-phzus}" --password-stdin >/dev/null
+fi
+unset GHCR_TOKEN
+
 python3 backup.py
-for image in frontend live backend; do docker pull -q "${IMAGE_PREFIX}-${image}:${TAG}"; done
+for image in frontend live backend; do
+  DOCKER_CONFIG="$PULL_CONFIG" docker pull -q "${IMAGE_PREFIX}-${image}:${TAG}"
+done
 
 set_images "$IMAGE_PREFIX" "$TAG"
 # Migrations run with the new image before any running service is replaced (all Labi migrations are additive).

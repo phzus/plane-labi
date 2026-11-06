@@ -16,10 +16,11 @@ It runs the internal project management of Agência Labi (self-hosted). Section 
 | 2026-11-06 | Chat attachment isolation | `apps/api/plane/app/views/asset/v2.py`, `apps/api/plane/api/views/asset.py` | Generic asset endpoints (get/patch/delete/restore/duplicate/download) exclude chat attachments, which are only served through the membership-checked chat endpoint |
 | 2026-11-06 | Chat housekeeping | `apps/api/plane/messaging/tasks.py`, `apps/api/plane/celery.py` | Daily task removes chat files never sent (or from deleted messages) after 24h |
 | 2026-11-06 | Team chat realtime | `apps/live/src/controllers/messages.controller.ts`, `apps/live/src/controllers/index.ts`, `apps/live/src/server.ts` | Push-only WebSocket at `/live/messages/`, session-authenticated, fail-closed origin check, per-IP pending-connection cap; WebSocket frames capped at 16 MiB |
-| 2026-11-06 | Team chat UI | `apps/web/**` (files marked), `packages/i18n/src/locales/{en,pt-BR}` | "Mensagens" sidebar item, full page, and a floating chat widget |
+| 2026-11-06 | Team chat UI | `apps/web/**` (files marked: `messages/**`, workspace layout, routes, sidebar `sidebar-item.tsx` + `helper.tsx`, root store), `packages/constants/src/workspace.ts`, `packages/i18n/src/locales/{en,pt-BR}` | "Mensagens" sidebar item with unread badge, full page, and a floating chat widget |
 | 2026-11-06 | Source link | `apps/web/Dockerfile.web`, web help menu | AGPL source-code link to the deployed commit |
 | 2026-11-06 | CI/CD | `.github/workflows/labi-ci-cd.yml` (upstream workflows removed), `deployments/labi/deploy-labi.sh` | Tests, secret scan, images on GHCR, deploy with a restricted SSH key |
 | 2026-11-06 | Tests | `apps/api/plane/tests/contract/app/test_labi_messaging.py` | Contract and access-control tests for the chat |
+| 2026-11-06 | Browser QA | `deployments/labi/e2e/**`, `.dockerignore` | Playwright E2E on an ephemeral localhost stack (CI gate before deploy) |
 
 ## Security notes for this public repository
 

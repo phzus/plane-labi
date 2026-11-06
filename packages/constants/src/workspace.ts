@@ -271,10 +271,19 @@ export const WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS: Record<string, IWorkspac
     access: [EUserWorkspaceRoles.ADMIN, EUserWorkspaceRoles.MEMBER, EUserWorkspaceRoles.GUEST],
     highlight: (pathname: string, url: string) => pathname === url,
   },
+  // Labi modification: team chat (see LABI-CHANGES.md). Guests are external, so no chat.
+  messages: {
+    key: "messages",
+    labelTranslationKey: "labi_messages.title",
+    href: `/messages/`,
+    access: [EUserWorkspaceRoles.ADMIN, EUserWorkspaceRoles.MEMBER],
+    highlight: (pathname: string, url: string) => pathname.startsWith(url.replace(/\/$/, "")),
+  },
 };
 
 export const WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS_LINKS: IWorkspaceSidebarNavigationItem[] = [
   WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS["home"],
+  WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS["messages"], // Labi modification: team chat
 ];
 
 export const WORKSPACE_SIDEBAR_STATIC_PINNED_NAVIGATION_ITEMS_LINKS: IWorkspaceSidebarNavigationItem[] = [

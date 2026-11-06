@@ -21,6 +21,8 @@ import { useUser, useUserPermissions } from "@/hooks/store/user";
 import { useWorkspaceNavigationPreferences } from "@/hooks/use-navigation-preferences";
 // plane web imports
 import { getSidebarNavigationItemIcon } from "@/components/workspace/sidebar/helper";
+// Labi modification: team chat unread badge (see LABI-CHANGES.md)
+import { MessagesSidebarBadge } from "@/components/messages/sidebar-badge";
 
 type Props = {
   item: IWorkspaceSidebarNavigationItem;
@@ -54,6 +56,7 @@ export const SidebarItemBase = observer(function SidebarItemBase({
     "your_work",
     "stickies",
     "drafts",
+    "messages", // Labi modification: team chat
     ...(additionalStaticItems || []),
   ];
   const slug = workspaceSlug?.toString() || "";
@@ -75,6 +78,7 @@ export const SidebarItemBase = observer(function SidebarItemBase({
           <p className="text-13 leading-5 font-medium">{t(item.labelTranslationKey)}</p>
         </div>
         {additionalRender?.(item.key, slug)}
+        {item.key === "messages" && <MessagesSidebarBadge />}
       </SidebarNavItem>
     </Link>
   );

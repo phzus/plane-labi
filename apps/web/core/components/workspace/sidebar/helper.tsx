@@ -17,6 +17,7 @@ import {
   YourWorkIcon,
 } from "@plane/propel/icons";
 import { cn } from "@plane/utils";
+import { MessagesSquare } from "lucide-react"; // Labi modification: team chat icon
 
 export const getSidebarNavigationItemIcon = (key: string, className: string = "") => {
   switch (key) {
@@ -40,5 +41,8 @@ export const getSidebarNavigationItemIcon = (key: string, className: string = ""
       return <ArchiveIcon className={cn("size-4 flex-shrink-0", className)} />;
     case "stickies":
       return <MultipleStickyIcon className={cn("size-4 flex-shrink-0", className)} />;
+    // Labi modification: team chat (see LABI-CHANGES.md)
+    case "messages":
+      return <MessagesSquare className={cn("size-4 flex-shrink-0", className)} aria-hidden />;
   }
 };

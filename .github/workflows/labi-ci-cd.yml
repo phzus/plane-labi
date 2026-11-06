@@ -178,18 +178,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Deploy over restricted SSH key
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          GHCR_PULL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           install -m 700 -d ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           # The key is pinned server-side to a forced command; this string is only its argument.
-          ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "root@${DEPLOY_HOST}" "deploy sha-${GITHUB_SHA}"
+          # stdin carries this job's short-lived token (packages:read) so the server can pull the images.
+          printf '%s\n' "$GHCR_PULL_TOKEN" | ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "root@${DEPLOY_HOST}" "deploy sha-${GITHUB_SHA}"
       - name: Clean up key
         if: always()
         run: rm -f ~/.ssh/deploy

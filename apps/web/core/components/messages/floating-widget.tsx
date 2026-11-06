@@ -78,6 +78,17 @@ export const MessagesFloatingWidget = observer(function MessagesFloatingWidget({
       panel.querySelector<HTMLElement>(FOCUSABLE)?.focus();
   }, [panelOpen]);
 
+  // After switching list <-> conversation the clicked element unmounts; keep focus inside the panel
+  // (touch devices skip the composer autofocus), so Esc and screen readers stay in context.
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panelOpen || !panel) return;
+    const id = window.setTimeout(() => {
+      if (!panel.contains(document.activeElement)) panel.focus({ preventScroll: true });
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [panelOpen, panelConversationId]);
+
   const close = useCallback(() => {
     store.setPanel(false);
     // Return focus to the pill once it re-renders.
@@ -178,7 +189,9 @@ export const MessagesFloatingWidget = observer(function MessagesFloatingWidget({
       aria-modal={isMobile ? "true" : undefined}
       aria-label={t("labi_messages.title")}
       onKeyDown={onKeyDown}
-      className="fixed inset-x-0 top-0 z-[26] flex h-dvh flex-col overflow-hidden bg-surface-1 md:inset-auto md:right-4 md:bottom-4 md:h-[530px] md:max-h-[calc(100dvh-2rem)] md:w-[370px] md:rounded-xl md:border md:border-subtle md:shadow-overlay-200"
+      tabIndex={-1}
+      // Mobile full-screen sits above Plane's top navigation (z-27) but below modals (z-30).
+      className="fixed inset-x-0 top-0 z-[29] flex h-dvh flex-col overflow-hidden bg-surface-1 outline-none md:inset-auto md:right-4 md:bottom-4 md:z-[26] md:h-[530px] md:max-h-[calc(100dvh-2rem)] md:w-[370px] md:rounded-xl md:border md:border-subtle md:shadow-overlay-200"
     >
       {panelConversationId ? (
         <ConversationView

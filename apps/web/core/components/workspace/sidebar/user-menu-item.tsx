@@ -14,7 +14,6 @@ import type { EUserWorkspaceRoles } from "@plane/types";
 // components
 import { SidebarNavItem } from "@/components/sidebar/sidebar-navigation";
 import { NotificationAppSidebarOption } from "@/components/workspace-notifications/notification-app-sidebar-option";
-import { MessagesSidebarBadge } from "@/components/messages/sidebar-badge"; // Labi modification: team chat (see LABI-CHANGES.md)
 // hooks
 import { useAppTheme } from "@/hooks/store/use-app-theme";
 import { useUserPermissions } from "@/hooks/store/user";
@@ -42,8 +41,7 @@ export const SidebarUserMenuItem = observer(function SidebarUserMenuItem(props: 
   const { allowPermissions } = useUserPermissions();
   const { toggleSidebar } = useAppTheme();
 
-  const isActive =
-    pathname === item.href || (item.key === "messages" && pathname.startsWith(`/${workspaceSlug}/messages`)); // Labi modification: team chat (see LABI-CHANGES.md)
+  const isActive = pathname === item.href;
 
   if (item.key === "drafts" && draftIssueCount === 0) return null;
 
@@ -64,8 +62,6 @@ export const SidebarUserMenuItem = observer(function SidebarUserMenuItem(props: 
           <p className="text-13 leading-5 font-medium">{t(item.labelTranslationKey)}</p>
         </div>
         {item.key === "notifications" && <NotificationAppSidebarOption workspaceSlug={workspaceSlug.toString()} />}
-        {/* Labi modification: team chat (see LABI-CHANGES.md) */}
-        {item.key === "messages" && <MessagesSidebarBadge />}
       </SidebarNavItem>
     </Link>
   );
