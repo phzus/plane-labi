@@ -41,7 +41,8 @@ set_images() { set_var LABI_IMAGE_PREFIX "$1"; set_var LABI_TAG "$2"; }
 
 smoke() {
   local base="https://${DOMAIN}"
-  for _ in $(seq 1 40); do
+  # Up to 12 min: on the shared VPS under load, Plane's API startup (configure/clear_cache) took ~5 min.
+  for _ in $(seq 1 144); do
     if curl -fsS -o /dev/null --resolve "${DOMAIN}:443:127.0.0.1" "${base}/" \
       && curl -fsS -o /dev/null --resolve "${DOMAIN}:443:127.0.0.1" "${base}/api/instances/" \
       && curl -fsS -o /dev/null --resolve "${DOMAIN}:443:127.0.0.1" "${base}/live/health/"; then
