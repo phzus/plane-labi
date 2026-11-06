@@ -74,15 +74,20 @@ echo "::group::Seed"
 { printf 'E2E_USERS = %s\n' "$(cat .secrets/users.json)"; cat seed.py; } | "${DC[@]}" exec -T api python manage.py shell
 echo "::endgroup::"
 
-echo "::group::Playwright install"
-npm install --no-audit --no-fund --loglevel=error
-npx playwright install --with-deps chromium
+# Playwright runs in its official image (browsers + OS deps pinned to the npm version), on the host
+# network so http://localhost is the proxy above. Same uid as the runner, so cleanup can delete outputs.
+PW_IMAGE="mcr.microsoft.com/playwright:v$(node -p 'require("./package.json").devDependencies["@playwright/test"]')-noble"
+PW=(docker run --rm --network host --ipc host --user "$(id -u):$(id -g)" -e HOME=/tmp
+  -e E2E_USERS_FILE=/e2e/.secrets/users.json -e LABI_IMAGE_PREFIX -e LABI_TAG -v "$HERE:/e2e" -w /e2e "$PW_IMAGE")
+echo "::group::Playwright install ($PW_IMAGE)"
+docker pull -q "$PW_IMAGE"
+"${PW[@]}" npm install --no-audit --no-fund --loglevel=error
 echo "::endgroup::"
 
 set +e
-E2E_USERS_FILE="$HERE/.secrets/users.json" npx playwright test
+"${PW[@]}" npx playwright test
 rc=$?
 set -e
-node summary.mjs || rc=1
+"${PW[@]}" node summary.mjs || rc=1
 [ -n "${GITHUB_STEP_SUMMARY:-}" ] && cat "$ART/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
 exit "$rc"

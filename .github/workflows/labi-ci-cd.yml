@@ -5,7 +5,7 @@ name: Labi CI/CD
 
 on:
   push:
-    branches: [labi, qa/e2e] # qa/e2e: temporary, only so GitHub registers this workflow for dispatch
+    branches: [labi]
   pull_request:
     branches: [labi]
   workflow_dispatch:
