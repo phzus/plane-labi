@@ -5,10 +5,15 @@ name: Labi CI/CD
 
 on:
   push:
-    branches: [labi]
+    branches: [labi, qa/e2e] # qa/e2e: temporary, only so GitHub registers this workflow for dispatch
   pull_request:
     branches: [labi]
   workflow_dispatch:
+    inputs:
+      image_sha:
+        description: "QA only: reuse the images built for this commit SHA (skips checks + build). Empty = full run."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -20,6 +25,7 @@ concurrency:
 jobs:
   api:
     name: API (lint + migrations + tests)
+    if: ${{ !inputs.image_sha }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -60,6 +66,7 @@ jobs:
 
   web-live:
     name: Web + Live (types + lint)
+    if: ${{ !inputs.image_sha }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -73,6 +80,7 @@ jobs:
 
   secrets:
     name: Secret scan (Labi commits)
+    if: ${{ !inputs.image_sha }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -88,7 +96,7 @@ jobs:
   images:
     name: Build images
     # labi pushes, or manual runs on any branch (QA iterations); only labi moves the :labi tag.
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/labi')
+    if: ${{ !inputs.image_sha && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/labi')) }}
     needs: [api, web-live, secrets]
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -136,6 +144,8 @@ jobs:
   e2e:
     name: E2E (browser QA gate)
     needs: [images]
+    # Normally after this commit's images; on a QA dispatch with image_sha, against those existing images.
+    if: ${{ !cancelled() && (needs.images.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.image_sha != '' && needs.images.result == 'skipped')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -151,7 +161,7 @@ jobs:
       - name: Run E2E against the images of this commit
         env:
           LABI_IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/plane-labi
-          LABI_TAG: sha-${{ github.sha }}
+          LABI_TAG: sha-${{ inputs.image_sha || github.sha }}
         run: bash deployments/labi/e2e/run.sh
       - name: Upload screenshots and traces
         if: always()
