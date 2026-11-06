@@ -108,12 +108,15 @@ test("AC-1 + AC-4: conversa direta em tempo real, badge, Visto e Shift+Enter", a
   await box.press("Shift+Enter");
   await box.pressSequentially("linha 2");
   await expect(box).toHaveValue(`linha 1 ${RUN}\nlinha 2`);
+  // The open conversation marks new messages read after a 1 s debounce: wait for it like a reader would.
+  const brunoReads = bruno.waitForResponse((r) => r.request().method() === "POST" && r.url().endsWith("/read/"));
   await box.press("Enter");
   await expect(box).toHaveValue("");
   const multi = bubble(panel(bruno), `linha 1 ${RUN}`);
   await expect(multi).toBeVisible({ timeout: 5_000 });
   expect(await multi.innerText()).toMatch(new RegExp(`linha 1 ${RUN}\\s*\\n\\s*linha 2`));
   await shot(bruno, "ac1-05-shift-enter-quebra-linha-ao-vivo");
+  expect((await brunoReads).status()).toBe(200);
 
   const reply = `Oi Ana, resposta do Bruno ${RUN}`;
   await send(panel(bruno), reply);
