@@ -16,6 +16,8 @@ from drf_spectacular.views import (
 handler404 = "plane.app.views.error_404.custom_404_view"
 
 urlpatterns = [
+    # Labi modification: team chat (see LABI-CHANGES.md)
+    path("api/workspaces/<str:slug>/messages/", include("plane.messaging.urls")),
     path("api/", include("plane.app.urls")),
     path("api/public/", include("plane.space.urls")),
     path("api/instances/", include("plane.license.urls")),

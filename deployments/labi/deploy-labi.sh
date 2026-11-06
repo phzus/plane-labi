@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Labi modification: production deploy entrypoint. See LABI-CHANGES.md.
+# Installed on the server as the *forced command* of a dedicated SSH key, e.g. in authorized_keys:
+#   restrict,command="/opt/stacks/plane-labi/deploy-labi.sh" ssh-ed25519 AAAA... github-actions-deploy
+# The only accepted input is "deploy sha-<40 hex>". Anything else is refused.
+# Steps: lock -> backup -> pull images -> migrate -> recreate app services -> smoke -> rollback on failure.
+set -euo pipefail
+
+STACK_DIR="${STACK_DIR:-/opt/stacks/plane-labi}"
+IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/phzus/plane-labi}"
+DOMAIN="${DOMAIN:-plane.agencialabi.com.br}"
+APP_SERVICES=(api worker beat-worker web live)
+
+cmd="${SSH_ORIGINAL_COMMAND:-${1:-}}"
+if [[ ! "$cmd" =~ ^deploy\ (sha-[0-9a-f]{40})$ ]]; then
+  echo "DEPLOY_REFUSED: invalid command" >&2
+  exit 2
+fi
+TAG="${BASH_REMATCH[1]}"
+
+cd "$STACK_DIR"
+exec 9>"$STACK_DIR/.deploy.lock"
+flock -n 9 || { echo "DEPLOY_BUSY" >&2; exit 3; }
+
+prev_tag="$(grep -E '^LABI_TAG=' .env | cut -d= -f2- || true)"
+set_tag() {
+  if grep -qE '^LABI_TAG=' .env; then sed -i "s/^LABI_TAG=.*/LABI_TAG=$1/" .env; else printf 'LABI_TAG=%s\n' "$1" >> .env; fi
+  chmod 600 .env
+}
+
+smoke() {
+  local base="https://${DOMAIN}"
+  for _ in $(seq 1 40); do
+    if curl -fsS -o /dev/null --resolve "${DOMAIN}:443:127.0.0.1" "${base}/" \
+      && curl -fsS -o /dev/null --resolve "${DOMAIN}:443:127.0.0.1" "${base}/api/instances/" \
+      && curl -fsS -o /dev/null --resolve "${DOMAIN}:443:127.0.0.1" "${base}/live/health/"; then
+      return 0
+    fi
+    sleep 5
+  done
+  return 1
+}
+
+rollback() {
+  echo "DEPLOY_FAILED: rolling back to ${prev_tag:-official images}" >&2
+  set_tag "$prev_tag" "$prev_prefix"
+  docker compose up -d "${APP_SERVICES[@]}" || true
+  exit 1
+}
+
+echo "DEPLOY_START $TAG (previous ${prev_tag:-none})"
+python3 backup.py
+for image in frontend live backend; do docker pull -q "${IMAGE_PREFIX}-${image}:${TAG}"; done
+
+set_tag "$TAG" "$IMAGE_PREFIX"
+# Migrations run with the new image before any running service is replaced (all Labi migrations are additive).
+docker compose run --rm migrator || rollback
+docker compose up -d "${APP_SERVICES[@]}" || rollback
+smoke || rollback
+
+docker image prune -f >/dev/null 2>&1 || true
+echo "DEPLOY_OK $TAG"

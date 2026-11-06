@@ -111,6 +111,7 @@ INSTALLED_APPS = [
     "plane.license",
     "plane.api",
     "plane.authentication",
+    "plane.messaging",  # Labi modification: team chat (see LABI-CHANGES.md)
     # Third-party things
     "rest_framework",
     "corsheaders",

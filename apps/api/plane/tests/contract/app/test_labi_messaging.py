@@ -1,0 +1,267 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Labi modification: contract + security tests for the team chat. See LABI-CHANGES.md.
+"""AC ids refer to plane-labi specs/04-funcionalidade-cliente.md."""
+
+import json
+from unittest import mock
+from uuid import uuid4
+
+import pytest
+from django.conf import settings as django_settings
+from rest_framework import status
+from rest_framework.test import APIClient
+
+from plane.db.models import FileAsset, User, Workspace, WorkspaceMember
+from plane.messaging.models import ATTACHMENT_ENTITY_TYPE, Conversation, ConversationMember, Message
+
+BASE = "/api/workspaces/{slug}/messages/"
+
+
+@pytest.fixture(autouse=True)
+def _local_cache(settings):
+    # Throttles need a cache; tests must not depend on Redis.
+    settings.CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+
+
+def _user(prefix):
+    uid = uuid4().hex[:8]
+    return User.objects.create(
+        email=f"{prefix}-{uid}@labi.test", username=f"{prefix}_{uid}", first_name=prefix.title(), display_name=prefix
+    )
+
+
+def _client(user):
+    client = APIClient()
+    client.force_authenticate(user=user)
+    return client
+
+
+@pytest.fixture
+def team(db, workspace, create_user):
+    """owner (admin, from conftest) + bia/caio/duda members + gil guest + out (other workspace)."""
+    users = {"owner": create_user}
+    for name in ("bia", "caio", "duda"):
+        users[name] = _user(name)
+        WorkspaceMember.objects.create(workspace=workspace, member=users[name], role=15)
+    users["gil"] = _user("gil")
+    WorkspaceMember.objects.create(workspace=workspace, member=users["gil"], role=5)
+    users["out"] = _user("out")
+    other = Workspace.objects.create(name="Other", owner=users["out"], slug="other-ws")
+    WorkspaceMember.objects.create(workspace=other, member=users["out"], role=20)
+    return users
+
+
+def _url(workspace, path=""):
+    return BASE.format(slug=workspace.slug) + path
+
+
+def _create(client, workspace, member_ids, **extra):
+    return client.post(
+        _url(workspace, "conversations/"), {"member_ids": [str(m) for m in member_ids], **extra}, format="json"
+    )
+
+
+def _send(client, workspace, conversation_id, body="oi", **extra):
+    return client.post(
+        _url(workspace, f"conversations/{conversation_id}/messages/"), {"body": body, **extra}, format="json"
+    )
+
+
+@pytest.mark.contract
+class TestConversations:
+    def test_direct_is_deduplicated(self, workspace, team):
+        owner = _client(team["owner"])
+        first = _create(owner, workspace, [team["bia"].id])
+        assert first.status_code == status.HTTP_201_CREATED
+        assert first.data["kind"] == "direct"
+        again = _create(_client(team["bia"]), workspace, [team["owner"].id])
+        assert again.status_code == status.HTTP_200_OK
+        assert again.data["id"] == first.data["id"]
+        assert Conversation.objects.filter(workspace=workspace).count() == 1
+
+    def test_group_creator_is_admin(self, workspace, team):
+        res = _create(_client(team["owner"]), workspace, [team["bia"].id, team["caio"].id], name="Criação")
+        assert res.status_code == status.HTTP_201_CREATED
+        assert res.data["kind"] == "group" and res.data["name"] == "Criação"
+        admins = [m["id"] for m in res.data["members"] if m["is_admin"]]
+        assert admins == [str(team["owner"].id)]
+
+    def test_cannot_add_people_outside_workspace_or_guests(self, workspace, team):
+        owner = _client(team["owner"])
+        assert _create(owner, workspace, [team["out"].id]).status_code == status.HTTP_400_BAD_REQUEST
+        assert _create(owner, workspace, [team["gil"].id]).status_code == status.HTTP_400_BAD_REQUEST
+        assert _create(owner, workspace, [uuid4()]).status_code == status.HTTP_400_BAD_REQUEST
+        assert _create(owner, workspace, [team["owner"].id]).status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_guest_and_outsider_have_no_access(self, workspace, team):
+        assert _client(team["gil"]).get(_url(workspace, "conversations/")).status_code == status.HTTP_403_FORBIDDEN
+        assert _client(team["out"]).get(_url(workspace, "conversations/")).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_list_only_shows_my_conversations(self, workspace, team):
+        _create(_client(team["owner"]), workspace, [team["bia"].id])
+        res = _client(team["caio"]).get(_url(workspace, "conversations/"))
+        assert res.status_code == status.HTTP_200_OK and res.data == []
+
+
+@pytest.mark.contract
+class TestIsolation:
+    """AC-2: a workspace member outside the conversation gets 404 everywhere."""
+
+    def test_non_member_gets_404(self, workspace, team):
+        conv = _create(_client(team["owner"]), workspace, [team["bia"].id, team["caio"].id]).data["id"]
+        msg = _send(_client(team["owner"]), workspace, conv).data["id"]
+        duda = _client(team["duda"])
+        for method, path, data in [
+            ("get", f"conversations/{conv}/", None),
+            ("patch", f"conversations/{conv}/", {"name": "x"}),
+            ("get", f"conversations/{conv}/messages/", None),
+            ("post", f"conversations/{conv}/messages/", {"body": "intruso"}),
+            ("delete", f"conversations/{conv}/messages/{msg}/", None),
+            ("post", f"conversations/{conv}/read/", None),
+            ("post", f"conversations/{conv}/members/", {"member_ids": [str(team["duda"].id)]}),
+            ("post", f"conversations/{conv}/attachments/", {"name": "a.png", "type": "image/png", "size": 10}),
+        ]:
+            res = getattr(duda, method)(_url(workspace, path), data, format="json")
+            assert res.status_code == status.HTTP_404_NOT_FOUND, (method, path, res.status_code)
+        assert Message.objects.filter(conversation_id=conv).count() == 1
+
+    def test_removed_member_loses_access(self, workspace, team):
+        owner = _client(team["owner"])
+        conv = _create(owner, workspace, [team["bia"].id, team["caio"].id]).data["id"]
+        res = owner.delete(_url(workspace, f"conversations/{conv}/members/{team['caio'].id}/"))
+        assert res.status_code == status.HTTP_204_NO_CONTENT
+        caio = _client(team["caio"])
+        assert caio.get(_url(workspace, f"conversations/{conv}/messages/")).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_conversation_from_other_workspace_is_404(self, workspace, team):
+        conv = _create(_client(team["owner"]), workspace, [team["bia"].id]).data["id"]
+        res = _client(team["out"]).get(f"/api/workspaces/other-ws/messages/conversations/{conv}/")
+        assert res.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.contract
+class TestMessages:
+    def test_send_unread_and_read(self, workspace, team):
+        owner, bia = _client(team["owner"]), _client(team["bia"])
+        conv = _create(owner, workspace, [team["bia"].id]).data["id"]
+        res = _send(owner, workspace, conv, "  bom dia  ")
+        assert res.status_code == status.HTTP_201_CREATED and res.data["body"] == "bom dia"
+        assert bia.get(_url(workspace, "unread/")).data == {"conversations": 1}
+        assert owner.get(_url(workspace, "unread/")).data == {"conversations": 0}
+        listed = bia.get(_url(workspace, "conversations/")).data[0]
+        assert listed["unread_count"] == 1 and listed["last_message"]["body"] == "bom dia"
+        assert bia.post(_url(workspace, f"conversations/{conv}/read/")).status_code == status.HTTP_200_OK
+        assert bia.get(_url(workspace, "unread/")).data == {"conversations": 0}
+
+    def test_validation(self, workspace, team):
+        owner = _client(team["owner"])
+        conv = _create(owner, workspace, [team["bia"].id]).data["id"]
+        assert _send(owner, workspace, conv, "   ").status_code == status.HTTP_400_BAD_REQUEST
+        assert _send(owner, workspace, conv, "x" * 4001).status_code == status.HTTP_400_BAD_REQUEST
+        other = _create(owner, workspace, [team["caio"].id]).data["id"]
+        foreign = _send(owner, workspace, other, "lá").data["id"]
+        assert _send(owner, workspace, conv, "re", reply_to_id=foreign).status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_reply_and_delete_own_only(self, workspace, team):
+        owner, bia = _client(team["owner"]), _client(team["bia"])
+        conv = _create(owner, workspace, [team["bia"].id]).data["id"]
+        first = _send(owner, workspace, conv, "pergunta").data["id"]
+        reply = _send(bia, workspace, conv, "resposta", reply_to_id=first)
+        assert reply.data["reply_to"]["id"] == first
+        assert bia.delete(_url(workspace, f"conversations/{conv}/messages/{first}/")).status_code == 403
+        res = owner.delete(_url(workspace, f"conversations/{conv}/messages/{first}/"))
+        assert res.status_code == 200 and res.data["is_removed"] and res.data["body"] == ""
+
+    def test_pagination_before(self, workspace, team):
+        owner = _client(team["owner"])
+        conv = _create(owner, workspace, [team["bia"].id]).data["id"]
+        ids = [_send(owner, workspace, conv, f"m{i}").data["id"] for i in range(5)]
+        page = owner.get(_url(workspace, f"conversations/{conv}/messages/?limit=2")).data
+        assert [m["id"] for m in page["results"]] == ids[3:] and page["has_more"]
+        older = owner.get(_url(workspace, f"conversations/{conv}/messages/?limit=2&before={ids[3]}")).data
+        assert [m["id"] for m in older["results"]] == ids[1:3]
+
+
+@pytest.mark.contract
+class TestGroups:
+    def test_only_admin_manages_and_heir_is_promoted(self, workspace, team):
+        owner, bia = _client(team["owner"]), _client(team["bia"])
+        conv = _create(owner, workspace, [team["bia"].id, team["caio"].id]).data["id"]
+        assert bia.patch(_url(workspace, f"conversations/{conv}/"), {"name": "x"}, format="json").status_code == 403
+        add = bia.post(
+            _url(workspace, f"conversations/{conv}/members/"), {"member_ids": [str(team["duda"].id)]}, format="json"
+        )
+        assert add.status_code == 403
+        assert bia.delete(_url(workspace, f"conversations/{conv}/members/{team['caio'].id}/")).status_code == 403
+        # admin leaves -> oldest remaining member becomes admin
+        assert owner.delete(_url(workspace, f"conversations/{conv}/members/{team['owner'].id}/")).status_code == 204
+        assert ConversationMember.objects.filter(conversation_id=conv, is_admin=True, is_active=True).count() == 1
+
+
+@pytest.mark.contract
+class TestAttachments:
+    def _asset(self, workspace, conv, user, uploaded=True):
+        asset = FileAsset(
+            attributes={"name": "f.png", "type": "image/png", "size": 10},
+            asset=f"{workspace.id}/{uuid4().hex}-f.png",
+            size=10,
+            workspace=workspace,
+            entity_type=ATTACHMENT_ENTITY_TYPE,
+            entity_identifier=str(conv),
+            is_uploaded=uploaded,
+        )
+        # BaseModel.save takes the author from the request (crum); outside a request pass it explicitly.
+        asset.save(created_by_id=user.id)
+        return asset
+
+    def test_rejects_bad_type_and_size(self, workspace, team):
+        owner = _client(team["owner"])
+        conv = _create(owner, workspace, [team["bia"].id]).data["id"]
+        url = _url(workspace, f"conversations/{conv}/attachments/")
+        exe = owner.post(url, {"name": "x.exe", "type": "application/x-msdownload", "size": 10}, format="json")
+        assert exe.status_code == status.HTTP_400_BAD_REQUEST
+        big = owner.post(
+            url, {"name": "a.png", "type": "image/png", "size": django_settings.FILE_SIZE_LIMIT + 1}, format="json"
+        )
+        assert big.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_only_own_uploaded_asset_of_this_conversation(self, workspace, team):
+        owner, bia = _client(team["owner"]), _client(team["bia"])
+        conv = _create(owner, workspace, [team["bia"].id]).data["id"]
+        other = _create(owner, workspace, [team["caio"].id]).data["id"]
+        not_uploaded = self._asset(workspace, conv, team["owner"], uploaded=False)
+        wrong_conv = self._asset(workspace, other, team["owner"])
+        bias = self._asset(workspace, conv, team["bia"])
+        for asset in (not_uploaded, wrong_conv, bias):
+            res = _send(owner, workspace, conv, "", attachment_ids=[str(asset.id)])
+            assert res.status_code == status.HTTP_400_BAD_REQUEST
+        ok = self._asset(workspace, conv, team["owner"])
+        res = _send(owner, workspace, conv, "", attachment_ids=[str(ok.id)])
+        assert res.status_code == status.HTTP_201_CREATED and res.data["attachments"][0]["id"] == str(ok.id)
+        # reusing an already-sent asset is refused
+        assert _send(owner, workspace, conv, "", attachment_ids=[str(ok.id)]).status_code == 400
+        # AC-3: members download via redirect; non-members get 404
+        with mock.patch("plane.messaging.views.S3Storage") as storage:
+            storage.return_value.generate_presigned_url.return_value = "https://files.test/signed"
+            res = bia.get(_url(workspace, f"conversations/{conv}/attachments/{ok.id}/"))
+            assert res.status_code == 302 and res["Location"] == "https://files.test/signed"
+            duda = _client(team["duda"])
+            assert duda.get(_url(workspace, f"conversations/{conv}/attachments/{ok.id}/")).status_code == 404
+
+
+@pytest.mark.contract
+class TestRealtime:
+    def test_events_go_only_to_active_members(self, workspace, team, django_capture_on_commit_callbacks):
+        owner = _client(team["owner"])
+        conv = _create(owner, workspace, [team["bia"].id, team["caio"].id]).data["id"]
+        with mock.patch("plane.messaging.realtime.redis_instance") as redis:
+            with django_capture_on_commit_callbacks(execute=True):
+                _send(owner, workspace, conv, "segredo")
+            channel, raw = redis.return_value.publish.call_args.args
+            payload = json.loads(raw)
+        assert channel == "labi:messaging"
+        expected = sorted(str(team[n].id) for n in ("owner", "bia", "caio"))
+        assert payload["member_ids"] == expected
+        assert payload["event"]["type"] == "message.created"
+        assert payload["event"]["message"]["body"] == "segredo"
+        assert str(team["duda"].id) not in payload["member_ids"]
