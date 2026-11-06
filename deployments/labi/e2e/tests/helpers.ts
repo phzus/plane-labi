@@ -53,7 +53,9 @@ test.afterEach(async ({}, testInfo) => {
 // ---- locators (accessible names come from packages/i18n pt-BR `labi_messages`) ----
 export const pill = (p: Page) => p.getByRole("button", { name: /^Abrir mensagens/ });
 export const panel = (p: Page) => p.getByRole("dialog", { name: "Mensagens", exact: true });
-export const sidebarItem = (p: Page) => p.locator(`a[href^="/${SLUG}/messages"]`).filter({ hasText: "Mensagens" });
+// Plane renders the sidebar twice ("Main sidebar" + hidden "Sidebar peek view"); assert on the visible one.
+export const sidebarItem = (p: Page) =>
+  p.getByLabel("Main sidebar").locator(`a[href^="/${SLUG}/messages"]`).filter({ hasText: "Mensagens" });
 export const composer = (scope: Page | ReturnType<Page["locator"]>) =>
   scope.getByRole("textbox", { name: "Mensagem…" });
 export const log = (scope: Page | ReturnType<Page["locator"]>) => scope.getByRole("log");
