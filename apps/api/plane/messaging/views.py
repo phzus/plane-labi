@@ -10,16 +10,17 @@ Security model (every request):
 """
 
 import uuid
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Count, OuterRef, Prefetch, Q, Subquery, Value
+from django.db.models import Count, OuterRef, Prefetch, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import HttpResponseRedirect
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, Throttled, ValidationError
+from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 
@@ -57,6 +58,24 @@ class ConversationCreateThrottle(UserRateThrottle):
     rate = "20/minute"
 
 
+class AttachmentUploadThrottle(UserRateThrottle):
+    scope = "labi_messaging_upload"
+    rate = "20/minute"
+
+
+# Daily per-user upload quota: protects the shared VPS disk.
+UPLOAD_QUOTA_FILES_PER_DAY = 200
+UPLOAD_QUOTA_BYTES_PER_DAY = 1024 * 1024 * 1024
+# Only raster images are ever served inline; everything else (SVG included) downloads as attachment.
+SAFE_INLINE_IMAGE_TYPES = frozenset({"image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"})
+SIGNED_URL_SECONDS = 300
+
+
+class ChatAPIView(BaseAPIView):
+    # JSON only: blocks cross-site form/multipart posts (Plane disables CSRF for session API auth).
+    parser_classes = [JSONParser]
+
+
 # ---- helpers ---------------------------------------------------------------
 
 
@@ -89,8 +108,17 @@ def _my_membership(conversation, user):
 
 
 def _active_member_ids(conversation):
+    """Realtime recipients: active participants who are STILL active ADMIN/MEMBER of the workspace."""
+    still_in_workspace = WorkspaceMember.objects.filter(
+        workspace_id=conversation.workspace_id,
+        is_active=True,
+        role__gte=ROLE.MEMBER.value,
+        member__is_active=True,
+    ).values("member_id")
     return list(
-        ConversationMember.objects.filter(conversation=conversation, is_active=True).values_list("member_id", flat=True)
+        ConversationMember.objects.filter(
+            conversation=conversation, is_active=True, member_id__in=still_in_workspace
+        ).values_list("member_id", flat=True)
     )
 
 
@@ -134,7 +162,7 @@ def _event(slug, type_, conversation_id, **data):
 # ---- conversations ---------------------------------------------------------
 
 
-class ConversationListEndpoint(BaseAPIView):
+class ConversationListEndpoint(ChatAPIView):
     def get_throttles(self):
         if self.request.method == "POST":
             return [ConversationCreateThrottle()]
@@ -236,7 +264,7 @@ class ConversationListEndpoint(BaseAPIView):
         return Response(data, status=status.HTTP_201_CREATED)
 
 
-class ConversationDetailEndpoint(BaseAPIView):
+class ConversationDetailEndpoint(ChatAPIView):
     @allow_permission(CHAT_ROLES, level="WORKSPACE")
     def get(self, request, slug, conversation_id):
         conversation = _get_conversation(slug, conversation_id, request.user)
@@ -254,7 +282,7 @@ class ConversationDetailEndpoint(BaseAPIView):
         return Response(_serialize_conversation(conversation, slug, request.user), status=status.HTTP_200_OK)
 
 
-class ConversationMembersEndpoint(BaseAPIView):
+class ConversationMembersEndpoint(ChatAPIView):
     @allow_permission(CHAT_ROLES, level="WORKSPACE")
     def post(self, request, slug, conversation_id):
         conversation = _get_conversation(slug, conversation_id, request.user)
@@ -265,14 +293,19 @@ class ConversationMembersEndpoint(BaseAPIView):
         if _chat_eligible_user_ids(slug, new_ids) != new_ids:
             raise ValidationError({"member_ids": "Pessoa inválida para este workspace."})
         with transaction.atomic():
-            current = set(_active_member_ids(conversation))
+            Conversation.objects.select_for_update().get(id=conversation.id)
+            current = set(
+                ConversationMember.objects.filter(conversation=conversation, is_active=True).values_list(
+                    "member_id", flat=True
+                )
+            )
             if len(current | new_ids) > MAX_GROUP_MEMBERS:
                 raise ValidationError({"member_ids": f"Grupo limitado a {MAX_GROUP_MEMBERS} pessoas."})
             for member_id in new_ids - current:
                 ConversationMember.objects.update_or_create(
                     conversation=conversation,
                     member_id=member_id,
-                    defaults={"is_active": True, "is_admin": False},
+                    defaults={"is_active": True, "is_admin": False, "created_at": timezone.now()},
                 )
         realtime.publish(_active_member_ids(conversation), _event(slug, "conversation.updated", conversation.id))
         return Response(_serialize_conversation(conversation, slug, request.user), status=status.HTTP_200_OK)
@@ -288,6 +321,7 @@ class ConversationMembersEndpoint(BaseAPIView):
             return Response({"error": "Somente quem administra o grupo pode remover pessoas."}, status=403)
         before = _active_member_ids(conversation)
         with transaction.atomic():
+            Conversation.objects.select_for_update().get(id=conversation.id)
             target = ConversationMember.objects.filter(
                 conversation=conversation, member_id=member_id, is_active=True
             ).first()
@@ -305,7 +339,7 @@ class ConversationMembersEndpoint(BaseAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class ConversationReadEndpoint(BaseAPIView):
+class ConversationReadEndpoint(ChatAPIView):
     @allow_permission(CHAT_ROLES, level="WORKSPACE")
     def post(self, request, slug, conversation_id):
         conversation = _get_conversation(slug, conversation_id, request.user)
@@ -318,7 +352,7 @@ class ConversationReadEndpoint(BaseAPIView):
         return Response({"last_read_at": now}, status=status.HTTP_200_OK)
 
 
-class UnreadSummaryEndpoint(BaseAPIView):
+class UnreadSummaryEndpoint(ChatAPIView):
     @allow_permission(CHAT_ROLES, level="WORKSPACE")
     def get(self, request, slug):
         user = request.user
@@ -345,7 +379,7 @@ class UnreadSummaryEndpoint(BaseAPIView):
 # ---- messages ----------------------------------------------------------------
 
 
-class MessageListEndpoint(BaseAPIView):
+class MessageListEndpoint(ChatAPIView):
     def get_throttles(self):
         if self.request.method == "POST":
             return [MessageSendThrottle()]
@@ -378,6 +412,11 @@ class MessageListEndpoint(BaseAPIView):
         user = request.user
         conversation = _get_conversation(slug, conversation_id, user)
         payload = _validate(MessageCreateInput, request.data)
+        client_id = payload.get("client_id")
+        if client_id:
+            existing = _message_qs().filter(conversation=conversation, sender=user, client_id=client_id).first()
+            if existing:  # retried send: return the original, never duplicate
+                return Response(message_payload(existing, slug), status=status.HTTP_200_OK)
 
         reply_to = None
         if payload.get("reply_to_id"):
@@ -386,30 +425,39 @@ class MessageListEndpoint(BaseAPIView):
                 raise ValidationError({"reply_to_id": "Mensagem não encontrada nesta conversa."})
 
         attachment_ids = set(payload.get("attachment_ids") or [])
-        with transaction.atomic():
-            assets = list(
-                FileAsset.objects.select_for_update(of=("self",)).filter(
-                    id__in=attachment_ids,
-                    workspace=conversation.workspace,
-                    entity_type=ATTACHMENT_ENTITY_TYPE,
-                    entity_identifier=str(conversation.id),
-                    created_by=user,
-                    is_uploaded=True,
-                    is_deleted=False,
-                    labi_messages__isnull=True,
+        try:
+            with transaction.atomic():
+                assets = list(
+                    FileAsset.objects.select_for_update(of=("self",)).filter(
+                        id__in=attachment_ids,
+                        workspace=conversation.workspace,
+                        entity_type=ATTACHMENT_ENTITY_TYPE,
+                        entity_identifier=str(conversation.id),
+                        created_by=user,
+                        is_uploaded=True,
+                        is_deleted=False,
+                        labi_messages__isnull=True,
+                    )
                 )
-            )
-            if len(assets) != len(attachment_ids):
-                raise ValidationError({"attachment_ids": "Anexo inválido."})
-            message = Message.objects.create(
-                conversation=conversation, sender=user, body=payload.get("body", ""), reply_to=reply_to
-            )
-            if assets:
-                message.attachments.set(assets)
-            Conversation.objects.filter(id=conversation.id).update(last_message_at=message.created_at)
-            ConversationMember.objects.filter(conversation=conversation, member=user).update(
-                last_read_at=message.created_at
-            )
+                already_sent = Message.attachments.through.objects.filter(fileasset_id__in=attachment_ids).exists()
+                if len(assets) != len(attachment_ids) or already_sent:
+                    raise ValidationError({"attachment_ids": "Anexo inválido."})
+                message = Message.objects.create(
+                    conversation=conversation,
+                    sender=user,
+                    body=payload.get("body", ""),
+                    reply_to=reply_to,
+                    client_id=client_id,
+                )
+                if assets:
+                    message.attachments.set(assets)
+                Conversation.objects.filter(id=conversation.id).update(last_message_at=message.created_at)
+                ConversationMember.objects.filter(conversation=conversation, member=user).update(
+                    last_read_at=message.created_at
+                )
+        except IntegrityError:  # concurrent retry with the same client_id won the race
+            existing = _message_qs().get(conversation=conversation, sender=user, client_id=client_id)
+            return Response(message_payload(existing, slug), status=status.HTTP_200_OK)
         message = _message_qs().get(id=message.id)
         data = message_payload(message, slug)
         realtime.publish(
@@ -418,7 +466,7 @@ class MessageListEndpoint(BaseAPIView):
         return Response(data, status=status.HTTP_201_CREATED)
 
 
-class MessageDetailEndpoint(BaseAPIView):
+class MessageDetailEndpoint(ChatAPIView):
     @allow_permission(CHAT_ROLES, level="WORKSPACE")
     def delete(self, request, slug, conversation_id, message_id):
         conversation = _get_conversation(slug, conversation_id, request.user)
@@ -442,11 +490,24 @@ class MessageDetailEndpoint(BaseAPIView):
 # ---- attachments ---------------------------------------------------------------
 
 
-class AttachmentEndpoint(BaseAPIView):
+class AttachmentEndpoint(ChatAPIView):
+    def get_throttles(self):
+        return [AttachmentUploadThrottle()]
+
     @allow_permission(CHAT_ROLES, level="WORKSPACE")
     def post(self, request, slug, conversation_id):
         conversation = _get_conversation(slug, conversation_id, request.user)
         payload = _validate(AttachmentCreateInput, request.data)
+        recent = FileAsset.all_objects.filter(
+            entity_type=ATTACHMENT_ENTITY_TYPE,
+            created_by=request.user,
+            created_at__gte=timezone.now() - timedelta(days=1),
+        ).aggregate(files=Count("id"), size=Coalesce(Sum("size"), Value(0.0)))
+        if (
+            recent["files"] >= UPLOAD_QUOTA_FILES_PER_DAY
+            or recent["size"] + payload["size"] > UPLOAD_QUOTA_BYTES_PER_DAY
+        ):
+            raise Throttled(detail="Limite diário de anexos atingido.")
         workspace = conversation.workspace
         asset_key = f"{workspace.id}/{uuid.uuid4().hex}-{payload['name']}"
         size = min(payload["size"], settings.FILE_SIZE_LIMIT)
@@ -471,7 +532,7 @@ class AttachmentEndpoint(BaseAPIView):
         )
 
 
-class AttachmentDetailEndpoint(BaseAPIView):
+class AttachmentDetailEndpoint(ChatAPIView):
     def _asset(self, slug, conversation, asset_id):
         try:
             return FileAsset.objects.get(
@@ -503,9 +564,14 @@ class AttachmentDetailEndpoint(BaseAPIView):
             raise NotFound()
         name = (asset.attributes or {}).get("name") or "arquivo"
         mime = (asset.attributes or {}).get("type") or ""
-        inline = mime.startswith("image/") and request.GET.get("download") != "1"
+        inline = mime.split(";")[0].strip().lower() in SAFE_INLINE_IMAGE_TYPES and request.GET.get("download") != "1"
         storage = S3Storage(request=request)
         url = storage.generate_presigned_url(
-            object_name=asset.asset.name, disposition="inline" if inline else "attachment", filename=name
+            object_name=asset.asset.name,
+            expiration=SIGNED_URL_SECONDS,
+            disposition="inline" if inline else "attachment",
+            filename=name,
         )
+        if not url:
+            raise NotFound()
         return HttpResponseRedirect(url)

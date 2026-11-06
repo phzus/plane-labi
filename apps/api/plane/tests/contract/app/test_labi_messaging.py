@@ -265,3 +265,101 @@ class TestRealtime:
         assert payload["event"]["type"] == "message.created"
         assert payload["event"]["message"]["body"] == "segredo"
         assert str(team["duda"].id) not in payload["member_ids"]
+
+
+@pytest.mark.contract
+class TestSecurityRegressions:
+    """Findings from the independent security review (2026-11-06)."""
+
+    def _sent_asset(self, workspace, team, mime="image/png"):
+        owner = _client(team["owner"])
+        conv = _create(owner, workspace, [team["bia"].id, team["caio"].id]).data["id"]
+        asset = FileAsset(
+            attributes={"name": "f", "type": mime, "size": 10},
+            asset=f"{workspace.id}/{uuid4().hex}-f",
+            size=10,
+            workspace=workspace,
+            entity_type=ATTACHMENT_ENTITY_TYPE,
+            entity_identifier=str(conv),
+            is_uploaded=True,
+        )
+        asset.save(created_by_id=team["owner"].id)
+        assert _send(owner, workspace, conv, "", attachment_ids=[str(asset.id)]).status_code == 201
+        return conv, asset
+
+    def test_svg_and_non_raster_are_never_inline(self, workspace, team):
+        conv, asset = self._sent_asset(workspace, team, mime="image/svg+xml")
+        with mock.patch("plane.messaging.views.S3Storage") as storage:
+            storage.return_value.generate_presigned_url.return_value = "https://files.test/signed"
+            _client(team["bia"]).get(_url(workspace, f"conversations/{conv}/attachments/{asset.id}/"))
+            kwargs = storage.return_value.generate_presigned_url.call_args.kwargs
+        assert kwargs["disposition"] == "attachment"
+        assert kwargs["expiration"] <= 300
+
+    def test_generic_asset_endpoints_cannot_reach_chat_attachments(self, workspace, team):
+        conv, asset = self._sent_asset(workspace, team)
+        slug = workspace.slug
+        # duda is a workspace member outside the conversation; gil is a guest.
+        for who in ("duda", "gil"):
+            client = _client(team[who])
+            for method, url in [
+                ("get", f"/api/assets/v2/workspaces/{slug}/{asset.id}/"),
+                ("patch", f"/api/assets/v2/workspaces/{slug}/{asset.id}/"),
+                ("delete", f"/api/assets/v2/workspaces/{slug}/{asset.id}/"),
+                ("get", f"/api/assets/v2/workspaces/{slug}/download/{asset.id}/"),
+                ("post", f"/api/assets/v2/workspaces/{slug}/restore/{asset.id}/"),
+            ]:
+                res = getattr(client, method)(url, {}, format="json")
+                assert res.status_code in (403, 404), (who, method, url, res.status_code)
+        asset.refresh_from_db()
+        assert asset.is_deleted is False
+
+    def test_user_removed_from_workspace_gets_no_events(self, workspace, team, django_capture_on_commit_callbacks):
+        owner = _client(team["owner"])
+        conv = _create(owner, workspace, [team["bia"].id, team["caio"].id]).data["id"]
+        WorkspaceMember.objects.filter(workspace=workspace, member=team["caio"]).update(is_active=False)
+        with mock.patch("plane.messaging.realtime.redis_instance") as redis:
+            with django_capture_on_commit_callbacks(execute=True):
+                _send(owner, workspace, conv, "depois da saída")
+            payload = json.loads(redis.return_value.publish.call_args.args[1])
+        assert str(team["caio"].id) not in payload["member_ids"]
+
+    def test_form_posts_are_rejected(self, workspace, team):
+        owner = _client(team["owner"])
+        conv = _create(owner, workspace, [team["bia"].id]).data["id"]
+        res = owner.post(_url(workspace, f"conversations/{conv}/messages/"), {"body": "x"}, format="multipart")
+        assert res.status_code == status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+
+    def test_orphan_attachments_are_purged(self, workspace, team):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from plane.messaging.tasks import delete_orphan_chat_attachments
+
+        conv, sent = self._sent_asset(workspace, team)
+        orphan = FileAsset(
+            attributes={"name": "o", "type": "image/png", "size": 1},
+            asset=f"{workspace.id}/{uuid4().hex}-o",
+            workspace=workspace,
+            entity_type=ATTACHMENT_ENTITY_TYPE,
+            entity_identifier=str(conv),
+            is_uploaded=True,
+        )
+        orphan.save(created_by_id=team["owner"].id)
+        FileAsset.all_objects.filter(id__in=[orphan.id, sent.id]).update(created_at=timezone.now() - timedelta(days=2))
+        with mock.patch("plane.messaging.tasks.S3Storage") as storage:
+            storage.return_value.delete_files.return_value = True
+            assert delete_orphan_chat_attachments() == 1
+        assert not FileAsset.all_objects.filter(id=orphan.id).exists()
+        assert FileAsset.all_objects.filter(id=sent.id).exists()
+
+    def test_retry_with_same_client_id_does_not_duplicate(self, workspace, team):
+        owner = _client(team["owner"])
+        conv = _create(owner, workspace, [team["bia"].id]).data["id"]
+        client_id = str(uuid4())
+        first = _send(owner, workspace, conv, "uma vez", client_id=client_id)
+        again = _send(owner, workspace, conv, "uma vez", client_id=client_id)
+        assert first.status_code == 201 and again.status_code == 200
+        assert again.data["id"] == first.data["id"] and again.data["client_id"] == client_id
+        assert Message.objects.filter(conversation_id=conv).count() == 1

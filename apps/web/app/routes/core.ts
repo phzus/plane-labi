@@ -87,6 +87,15 @@ export const coreRoutes: RouteConfigEntry[] = [
           route(":workspaceSlug/notifications", "./(all)/[workspaceSlug]/(projects)/notifications/page.tsx"),
         ]),
 
+        // Labi modification: team chat (see LABI-CHANGES.md)
+        layout("./(all)/[workspaceSlug]/(projects)/messages/layout.tsx", [
+          route(":workspaceSlug/messages", "./(all)/[workspaceSlug]/(projects)/messages/page.tsx"),
+          route(
+            ":workspaceSlug/messages/:conversationId",
+            "./(all)/[workspaceSlug]/(projects)/messages/[conversationId]/page.tsx"
+          ),
+        ]),
+
         // Profile
         layout("./(all)/[workspaceSlug]/(projects)/profile/[userId]/layout.tsx", [
           route(":workspaceSlug/profile/:userId", "./(all)/[workspaceSlug]/(projects)/profile/[userId]/page.tsx"),

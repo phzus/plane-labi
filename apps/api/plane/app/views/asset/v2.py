@@ -21,6 +21,9 @@ from rest_framework.permissions import AllowAny
 from ..base import BaseAPIView
 from plane.db.models import FileAsset, Workspace, Project, User, WorkspaceMember, ProjectMember
 from plane.settings.storage import S3Storage
+
+# Labi modification: chat attachments are only reachable through plane.messaging (membership-checked).
+from plane.messaging.models import ATTACHMENT_ENTITY_TYPE as LABI_CHAT_ATTACHMENT
 from plane.app.permissions import allow_permission, ROLE
 from plane.utils.cache import invalidate_cache_directly
 from plane.utils.path_validator import sanitize_filename
@@ -417,7 +420,7 @@ class WorkspaceFileAssetEndpoint(BaseAPIView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def patch(self, request, slug, asset_id):
         # get the asset id
-        asset = FileAsset.objects.get(id=asset_id, workspace__slug=slug)
+        asset = FileAsset.objects.exclude(entity_type=LABI_CHAT_ATTACHMENT).get(id=asset_id, workspace__slug=slug)
         # enforce project-level access for project-bound assets
         if not self.has_project_asset_access(request, asset):
             return Response(
@@ -444,7 +447,7 @@ class WorkspaceFileAssetEndpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def delete(self, request, slug, asset_id):
-        asset = FileAsset.objects.get(id=asset_id, workspace__slug=slug)
+        asset = FileAsset.objects.exclude(entity_type=LABI_CHAT_ATTACHMENT).get(id=asset_id, workspace__slug=slug)
         # enforce project-level access for project-bound assets
         if not self.has_project_asset_access(request, asset):
             return Response(
@@ -461,7 +464,7 @@ class WorkspaceFileAssetEndpoint(BaseAPIView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug, asset_id):
         # get the asset id
-        asset = FileAsset.objects.get(id=asset_id, workspace__slug=slug)
+        asset = FileAsset.objects.exclude(entity_type=LABI_CHAT_ATTACHMENT).get(id=asset_id, workspace__slug=slug)
         # enforce project-level access for project-bound assets
         if not self.has_project_asset_access(request, asset):
             return Response(
@@ -538,7 +541,7 @@ class AssetRestoreEndpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def post(self, request, slug, asset_id):
-        asset = FileAsset.all_objects.get(id=asset_id, workspace__slug=slug)
+        asset = FileAsset.all_objects.exclude(entity_type=LABI_CHAT_ATTACHMENT).get(id=asset_id, workspace__slug=slug)
         asset.is_deleted = False
         asset.deleted_at = None
         asset.save(update_fields=["is_deleted", "deleted_at"])
@@ -832,7 +835,7 @@ class DuplicateAssetEndpoint(BaseAPIView):
 
         storage = S3Storage(request=request)
         # Restrict the source asset to the same destination workspace to prevent cross-workspace asset copying
-        original_asset = FileAsset.objects.filter(
+        original_asset = FileAsset.objects.exclude(entity_type=LABI_CHAT_ATTACHMENT).filter(
             id=asset_id,
             is_uploaded=True,
             workspace=workspace,
@@ -871,7 +874,7 @@ class WorkspaceAssetDownloadEndpoint(BaseAPIView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug, asset_id):
         try:
-            asset = FileAsset.objects.get(
+            asset = FileAsset.objects.exclude(entity_type=LABI_CHAT_ATTACHMENT).get(
                 id=asset_id,
                 workspace__slug=slug,
                 is_uploaded=True,

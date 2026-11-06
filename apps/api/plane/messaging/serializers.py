@@ -30,6 +30,7 @@ class MessageCreateInput(serializers.Serializer):
         max_length=MAX_BODY_LENGTH, required=False, allow_blank=True, trim_whitespace=True, default=""
     )
     reply_to_id = serializers.UUIDField(required=False, allow_null=True)
+    client_id = serializers.UUIDField(required=False, allow_null=True)
     attachment_ids = serializers.ListField(
         child=serializers.UUIDField(), required=False, default=list, max_length=MAX_ATTACHMENTS_PER_MESSAGE
     )
@@ -93,6 +94,7 @@ def message_payload(message, slug):
         "sender_id": str(message.sender_id) if message.sender_id else None,
         "body": "" if message.is_removed else message.body,
         "is_removed": message.is_removed,
+        "client_id": str(message.client_id) if message.client_id else None,
         "reply_to": (
             {
                 "id": str(reply.id),

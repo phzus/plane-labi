@@ -18,6 +18,9 @@ import { PlaneVersionNumber } from "@/components/global/version-number";
 // hooks
 import { usePowerK } from "@/hooks/store/use-power-k";
 
+// Labi modification: set at build time by CI to the deployed commit (see LABI-CHANGES.md)
+const LABI_SOURCE_URL = process.env.VITE_LABI_SOURCE_URL || "https://github.com/phzus/plane-labi";
+
 export const HelpMenuRoot = observer(function HelpMenuRoot() {
   // store hooks
   const { t } = useTranslation();
@@ -81,6 +84,12 @@ export const HelpMenuRoot = observer(function HelpMenuRoot() {
         <CustomMenu.MenuItem onClick={() => window.open("https://forum.plane.so", "_blank", "noopener,noreferrer")}>
           <div className="flex items-center gap-x-2 rounded-sm text-11">
             <span className="text-11">Forum</span>
+          </div>
+        </CustomMenu.MenuItem>
+        {/* Labi modification: AGPL-3.0 §13 — link to the exact source of the running version (see LABI-CHANGES.md) */}
+        <CustomMenu.MenuItem onClick={() => window.open(LABI_SOURCE_URL, "_blank", "noopener,noreferrer")}>
+          <div className="flex items-center gap-x-2 rounded-sm text-11">
+            <span className="text-11">Código-fonte (AGPL-3.0)</span>
           </div>
         </CustomMenu.MenuItem>
         <div className="mt-1 border-t border-subtle px-1 pt-2 text-11 text-secondary">

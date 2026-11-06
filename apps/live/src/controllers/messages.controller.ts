@@ -26,6 +26,16 @@ const HEARTBEAT_MS = 30_000;
 const REVALIDATE_MS = 10 * 60_000;
 const MAX_SOCKETS_PER_USER = 10;
 const MAX_CLIENT_FRAME_BYTES = 1024;
+const MAX_PENDING_PER_IP = 20;
+
+// Connections still authenticating, per client IP (each one costs an API call).
+const pendingByIp = new Map<string, number>();
+
+function clientIp(req: Request): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(",")[0]?.trim();
+  return first || req.socket.remoteAddress || "unknown";
+}
 
 type TClient = { ws: WebSocket; userId: string; cookie: string; alive: boolean; validatedAt: number };
 
@@ -117,12 +127,21 @@ async function currentUserId(cookie: string): Promise<string | null> {
   }
 }
 
-function isAllowedOrigin(origin: string | undefined): boolean {
+/** Fail closed: configured origins, or (when none are configured) only the host serving this request. */
+function isAllowedOrigin(req: Request): boolean {
+  const origin = req.headers.origin;
+  if (!origin) return false;
   const allowed = env.CORS_ALLOWED_ORIGINS.split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  if (allowed.length === 0) return true; // same behaviour as the HTTP CORS config
-  return !!origin && allowed.includes(origin);
+  if (allowed.length > 0) return allowed.includes(origin);
+  const forwardedHost = req.headers["x-forwarded-host"];
+  const host = (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost) ?? req.headers.host;
+  try {
+    return !!host && new URL(origin).host === host.split(",")[0].trim();
+  } catch {
+    return false;
+  }
 }
 
 @Controller("/messages")
@@ -132,7 +151,7 @@ export class MessagesController {
   @WSDecorator("/")
   async handleConnection(ws: WebSocket, req: Request) {
     try {
-      if (!isAllowedOrigin(req.headers.origin)) {
+      if (!isAllowedOrigin(req)) {
         ws.close(4403, "Origin not allowed");
         return;
       }
@@ -141,8 +160,22 @@ export class MessagesController {
         ws.close(4401, "Unauthorized");
         return;
       }
-      await hub.start();
-      const userId = await currentUserId(cookie);
+      const ip = clientIp(req);
+      const pending = pendingByIp.get(ip) ?? 0;
+      if (pending >= MAX_PENDING_PER_IP) {
+        ws.close(4429, "Too many pending connections");
+        return;
+      }
+      pendingByIp.set(ip, pending + 1);
+      let userId: string | null;
+      try {
+        await hub.start();
+        userId = await currentUserId(cookie);
+      } finally {
+        const left = (pendingByIp.get(ip) ?? 1) - 1;
+        if (left <= 0) pendingByIp.delete(ip);
+        else pendingByIp.set(ip, left);
+      }
       if (!userId || ws.readyState !== ws.OPEN) {
         ws.close(4401, "Unauthorized");
         return;

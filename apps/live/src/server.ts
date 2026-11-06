@@ -32,7 +32,8 @@ export class Server {
 
   constructor() {
     this.app = express();
-    expressWs(this.app);
+    // Labi modification: cap WebSocket frames (ws default is 100 MiB); 16 MiB still fits large page syncs.
+    expressWs(this.app, undefined, { wsOptions: { maxPayload: 16 * 1024 * 1024 } });
     this.setupMiddleware();
     this.router = express.Router();
     this.app.set("port", env.PORT || 3000);

@@ -17,6 +17,9 @@ from drf_spectacular.utils import OpenApiExample, OpenApiRequest
 # Module Imports
 from plane.bgtasks.storage_metadata_task import get_asset_object_metadata
 from plane.settings.storage import S3Storage
+
+# Labi modification: chat attachments are only reachable through plane.messaging (membership-checked).
+from plane.messaging.models import ATTACHMENT_ENTITY_TYPE as LABI_CHAT_ATTACHMENT
 from plane.utils.path_validator import sanitize_filename
 from plane.db.models import FileAsset, User, Workspace
 from plane.app.permissions import WorkspaceUserPermission
@@ -435,7 +438,9 @@ class GenericAssetEndpoint(BaseAPIView):
             workspace = Workspace.objects.get(slug=slug)
 
             # Get the asset
-            asset = FileAsset.objects.get(id=asset_id, workspace_id=workspace.id, is_deleted=False)
+            asset = FileAsset.objects.exclude(entity_type=LABI_CHAT_ATTACHMENT).get(
+                id=asset_id, workspace_id=workspace.id, is_deleted=False
+            )
 
             # Check if the asset exists and is uploaded
             if not asset.is_uploaded:
@@ -618,7 +623,9 @@ class GenericAssetEndpoint(BaseAPIView):
         and trigger metadata extraction.
         """
         try:
-            asset = FileAsset.objects.get(id=asset_id, workspace__slug=slug, is_deleted=False)
+            asset = FileAsset.objects.exclude(entity_type=LABI_CHAT_ATTACHMENT).get(
+                id=asset_id, workspace__slug=slug, is_deleted=False
+            )
 
             # Update is_uploaded status
             asset.is_uploaded = request.data.get("is_uploaded", asset.is_uploaded)

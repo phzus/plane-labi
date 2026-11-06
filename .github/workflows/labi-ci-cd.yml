@@ -87,7 +87,8 @@ jobs:
 
   images:
     name: Build images
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/labi'
+    # labi pushes, or manual runs on any branch (QA iterations); only labi moves the :labi tag.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/labi')
     needs: [api, web-live, secrets]
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -124,7 +125,7 @@ jobs:
             VITE_LABI_SOURCE_URL=https://github.com/${{ github.repository }}/tree/${{ github.sha }}
           tags: |
             ghcr.io/${{ github.repository_owner }}/plane-labi-${{ matrix.name }}:sha-${{ github.sha }}
-            ghcr.io/${{ github.repository_owner }}/plane-labi-${{ matrix.name }}:labi
+            ${{ github.ref == 'refs/heads/labi' && format('ghcr.io/{0}/plane-labi-{1}:labi', github.repository_owner, matrix.name) || '' }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -132,10 +133,38 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
+  e2e:
+    name: E2E (browser QA gate)
+    needs: [images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run E2E against the images of this commit
+        env:
+          LABI_IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/plane-labi
+          LABI_TAG: sha-${{ github.sha }}
+        run: bash deployments/labi/e2e/run.sh
+      - name: Upload screenshots and traces
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-evidence
+          path: deployments/labi/e2e/artifacts/
+          retention-days: 14
+
   deploy:
     name: Deploy (production)
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/labi'
-    needs: [images]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/labi'
+    needs: [images, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production

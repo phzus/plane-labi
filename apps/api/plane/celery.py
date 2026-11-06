@@ -64,6 +64,11 @@ app.conf.beat_schedule = {
         "task": "plane.bgtasks.exporter_expired_task.delete_old_s3_link",
         "schedule": crontab(hour=1, minute=30),  # UTC 01:30
     },
+    # Labi modification: team chat attachment housekeeping (see LABI-CHANGES.md)
+    "labi-delete-orphan-chat-attachments": {
+        "task": "plane.messaging.tasks.delete_orphan_chat_attachments",
+        "schedule": crontab(hour=2, minute=15),  # UTC 02:15
+    },
     "check-every-day-to-delete-file-asset": {
         "task": "plane.bgtasks.file_asset_task.delete_unuploaded_file_asset",
         "schedule": crontab(hour=2, minute=0),  # UTC 02:00

@@ -10,6 +10,7 @@ import { WorkspaceContentWrapper } from "@/components/workspace/content-wrapper"
 import { AppRailVisibilityProvider } from "@/lib/app-rail";
 import { GlobalModals } from "@/components/common/modal/global";
 import { WorkspaceAuthWrapper } from "@/layouts/auth-layout/workspace-wrapper";
+import { MessagesFloatingWidget } from "@/components/messages/floating-widget"; // Labi modification: team chat (see LABI-CHANGES.md)
 import type { Route } from "./+types/layout";
 
 export default function WorkspaceLayout(props: Route.ComponentProps) {
@@ -22,6 +23,8 @@ export default function WorkspaceLayout(props: Route.ComponentProps) {
           <WorkspaceContentWrapper>
             <GlobalModals workspaceSlug={workspaceSlug} />
             <Outlet />
+            {/* Labi modification: team chat (see LABI-CHANGES.md) */}
+            <MessagesFloatingWidget workspaceSlug={workspaceSlug} />
           </WorkspaceContentWrapper>
         </AppRailVisibilityProvider>
       </WorkspaceAuthWrapper>

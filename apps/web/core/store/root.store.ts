@@ -69,6 +69,9 @@ import { ThemeStore } from "./theme.store";
 import type { IUserStore } from "./user";
 import { UserStore } from "./user";
 import type { IWorkspaceRootStore } from "./workspace";
+// Labi modification: team chat (see LABI-CHANGES.md)
+import type { IMessagesStore } from "./messages.store";
+import { MessagesStore } from "./messages.store";
 
 enableStaticRendering(typeof window === "undefined");
 
@@ -103,6 +106,7 @@ export class CoreRootStore {
   workItemFilters: IWorkItemFilterStore;
   powerK: IPowerKStore;
   timelineStore: ITimelineStore;
+  messages: IMessagesStore; // Labi modification: team chat (see LABI-CHANGES.md)
 
   constructor() {
     this.router = new RouterStore();
@@ -135,6 +139,7 @@ export class CoreRootStore {
     this.workItemFilters = new WorkItemFilterStore();
     this.powerK = new PowerKStore();
     this.timelineStore = new TimeLineStore(this);
+    this.messages = new MessagesStore(this); // Labi modification: team chat (see LABI-CHANGES.md)
   }
 
   resetOnSignOut() {
@@ -169,6 +174,7 @@ export class CoreRootStore {
     this.workItemFilters = new WorkItemFilterStore();
     this.powerK = new PowerKStore();
     this.timelineStore = new TimeLineStore(this);
+    this.messages = new MessagesStore(this); // Labi modification: team chat (see LABI-CHANGES.md)
   }
 }
 
