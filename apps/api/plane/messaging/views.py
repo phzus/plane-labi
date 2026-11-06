@@ -456,7 +456,13 @@ class MessageListEndpoint(ChatAPIView):
                     last_read_at=message.created_at
                 )
         except IntegrityError:  # concurrent retry with the same client_id won the race
-            existing = _message_qs().get(conversation=conversation, sender=user, client_id=client_id)
+            existing = (
+                _message_qs().filter(conversation=conversation, sender=user, client_id=client_id).first()
+                if client_id
+                else None
+            )
+            if existing is None:
+                raise
             return Response(message_payload(existing, slug), status=status.HTTP_200_OK)
         message = _message_qs().get(id=message.id)
         data = message_payload(message, slug)

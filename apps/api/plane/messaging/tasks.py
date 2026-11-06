@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from plane.db.models import FileAsset
 from plane.settings.storage import S3Storage
+from plane.utils.exception_logger import log_exception
 
 from .models import ATTACHMENT_ENTITY_TYPE
 
@@ -32,9 +33,22 @@ def delete_orphan_chat_attachments():
         batch = list(stale.values_list("id", "asset")[:BATCH])
         if not batch:
             break
-        ids, keys = zip(*batch)
-        if not storage.delete_files([str(key) for key in keys if key]):
-            break  # storage error already logged; retry tomorrow, keep the rows
-        FileAsset.all_objects.filter(id__in=ids).delete()
-        removed += len(ids)
+        keys = [str(key) for _, key in batch if key]
+        failed = set()
+        if keys:
+            try:
+                response = storage.s3_client.delete_objects(
+                    Bucket=storage.aws_storage_bucket_name, Delete={"Objects": [{"Key": k} for k in keys]}
+                )
+            except Exception as exc:  # storage unavailable: keep rows, retry tomorrow
+                log_exception(exc)
+                break
+            failed = {err.get("Key") for err in response.get("Errors", [])}
+        done = [asset_id for asset_id, key in batch if not key or str(key) not in failed]
+        if not done:
+            break  # every key failed; avoid an endless loop
+        FileAsset.all_objects.filter(id__in=done).delete()
+        removed += len(done)
+        if failed:
+            break  # leave the failures for the next run
     return removed

@@ -70,7 +70,7 @@ class Message(BaseModel):
         indexes = [models.Index(fields=["conversation", "created_at"], name="labi_msg_conv_created_idx")]
         constraints = [
             models.UniqueConstraint(
-                fields=["sender", "client_id"],
+                fields=["conversation", "sender", "client_id"],
                 condition=Q(client_id__isnull=False),
                 name="labi_message_unique_client_id",
             )

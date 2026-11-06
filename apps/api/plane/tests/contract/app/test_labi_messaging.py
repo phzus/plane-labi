@@ -349,7 +349,7 @@ class TestSecurityRegressions:
         orphan.save(created_by_id=team["owner"].id)
         FileAsset.all_objects.filter(id__in=[orphan.id, sent.id]).update(created_at=timezone.now() - timedelta(days=2))
         with mock.patch("plane.messaging.tasks.S3Storage") as storage:
-            storage.return_value.delete_files.return_value = True
+            storage.return_value.s3_client.delete_objects.return_value = {"Deleted": []}
             assert delete_orphan_chat_attachments() == 1
         assert not FileAsset.all_objects.filter(id=orphan.id).exists()
         assert FileAsset.all_objects.filter(id=sent.id).exists()
@@ -363,3 +363,61 @@ class TestSecurityRegressions:
         assert first.status_code == 201 and again.status_code == 200
         assert again.data["id"] == first.data["id"] and again.data["client_id"] == client_id
         assert Message.objects.filter(conversation_id=conv).count() == 1
+
+
+@pytest.mark.contract
+class TestReReviewRegressions:
+    """Findings from the independent re-review (2026-11-06)."""
+
+    def test_client_id_reused_in_other_conversation_creates_new_message(self, workspace, team):
+        owner = _client(team["owner"])
+        first_conv = _create(owner, workspace, [team["bia"].id]).data["id"]
+        second_conv = _create(owner, workspace, [team["caio"].id]).data["id"]
+        client_id = str(uuid4())
+        assert _send(owner, workspace, first_conv, "a", client_id=client_id).status_code == 201
+        res = _send(owner, workspace, second_conv, "b", client_id=client_id)
+        assert res.status_code == 201 and res.data["conversation_id"] == second_conv
+
+    def test_raster_image_is_inline(self, workspace, team):
+        owner, bia = _client(team["owner"]), _client(team["bia"])
+        conv = _create(owner, workspace, [team["bia"].id]).data["id"]
+        asset = FileAsset(
+            attributes={"name": "p.png", "type": "image/png", "size": 10},
+            asset=f"{workspace.id}/{uuid4().hex}-p.png",
+            size=10,
+            workspace=workspace,
+            entity_type=ATTACHMENT_ENTITY_TYPE,
+            entity_identifier=str(conv),
+            is_uploaded=True,
+        )
+        asset.save(created_by_id=team["owner"].id)
+        assert _send(owner, workspace, conv, "", attachment_ids=[str(asset.id)]).status_code == 201
+        with mock.patch("plane.messaging.views.S3Storage") as storage:
+            storage.return_value.generate_presigned_url.return_value = "https://files.test/signed"
+            bia.get(_url(workspace, f"conversations/{conv}/attachments/{asset.id}/"))
+            assert storage.return_value.generate_presigned_url.call_args.kwargs["disposition"] == "inline"
+
+    def test_bulk_and_check_endpoints_ignore_chat_attachments(self, workspace, team):
+        from plane.db.models import Project, ProjectMember
+
+        owner = _client(team["owner"])
+        conv = _create(owner, workspace, [team["bia"].id]).data["id"]
+        asset = FileAsset(
+            attributes={"name": "p.png", "type": "image/png", "size": 10},
+            asset=f"{workspace.id}/{uuid4().hex}-p.png",
+            size=10,
+            workspace=workspace,
+            entity_type=ATTACHMENT_ENTITY_TYPE,
+            entity_identifier=str(conv),
+            is_uploaded=True,
+        )
+        asset.save(created_by_id=team["owner"].id)
+        project = Project.objects.create(name="P", identifier="P", workspace=workspace)
+        ProjectMember.objects.create(project=project, member=team["owner"], workspace=workspace, role=20)
+        owner.post(
+            f"/api/assets/v2/workspaces/{workspace.slug}/projects/{project.id}/{uuid4()}/bulk/",
+            {"asset_ids": [str(asset.id)]},
+            format="json",
+        )
+        asset.refresh_from_db()
+        assert asset.project_id is None and asset.entity_type == ATTACHMENT_ENTITY_TYPE

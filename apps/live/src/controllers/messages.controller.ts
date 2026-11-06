@@ -31,10 +31,14 @@ const MAX_PENDING_PER_IP = 20;
 // Connections still authenticating, per client IP (each one costs an API call).
 const pendingByIp = new Map<string, number>();
 
+/** Rightmost X-Forwarded-For hop is appended by our own proxy chain; leftmost entries are client-controlled. */
 function clientIp(req: Request): string {
   const forwarded = req.headers["x-forwarded-for"];
-  const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(",")[0]?.trim();
-  return first || req.socket.remoteAddress || "unknown";
+  const hops = (Array.isArray(forwarded) ? forwarded.join(",") : (forwarded ?? ""))
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return hops[hops.length - 1] || req.socket.remoteAddress || "unknown";
 }
 
 type TClient = { ws: WebSocket; userId: string; cookie: string; alive: boolean; validatedAt: number };
@@ -107,9 +111,7 @@ class MessagingHub {
         client.ws.ping();
         if (now - client.validatedAt > REVALIDATE_MS) {
           client.validatedAt = now;
-          void currentUserId(client.cookie).then((id) => {
-            if (id !== client.userId) client.ws.close(4401, "Session expired");
-          });
+          void revalidate(client);
         }
       }
     }
@@ -124,6 +126,18 @@ async function currentUserId(cookie: string): Promise<string | null> {
     return user?.id ?? null;
   } catch {
     return null;
+  }
+}
+
+/** 401/403 from the API = session gone (4401, client stops). Other failures = transient (1012, client reconnects). */
+async function revalidate(client: TClient): Promise<void> {
+  try {
+    const user = await new UserService().currentUser(client.cookie);
+    if (user?.id !== client.userId) client.ws.close(4401, "Session expired");
+  } catch (error) {
+    const status = (error as { statusCode?: number })?.statusCode; // AppError keeps the HTTP status
+    if (status === 401 || status === 403) client.ws.close(4401, "Session expired");
+    else client.ws.close(1012, "Service restart");
   }
 }
 

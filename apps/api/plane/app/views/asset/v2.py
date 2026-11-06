@@ -498,7 +498,7 @@ class StaticFileAssetEndpoint(BaseAPIView):
 
     def get(self, request, asset_id):
         # get the asset id
-        asset = FileAsset.objects.get(id=asset_id)
+        asset = FileAsset.objects.exclude(entity_type=LABI_CHAT_ATTACHMENT).get(id=asset_id)
 
         # Check if the asset is uploaded
         if not asset.is_uploaded:
@@ -720,7 +720,7 @@ class ProjectBulkAssetEndpoint(BaseAPIView):
         # unassociated-or-same-project bound prevent cross-project/user IDOR (a caller can
         # only touch their own uploads, cannot move an asset in from another project, and
         # @allow_permission already scopes them to this project).
-        assets = FileAsset.objects.filter(
+        assets = FileAsset.objects.exclude(entity_type=LABI_CHAT_ATTACHMENT).filter(
             id__in=asset_ids,
             workspace__slug=slug,
             created_by=request.user,
@@ -775,7 +775,11 @@ class AssetCheckEndpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug, asset_id):
-        asset = FileAsset.all_objects.filter(id=asset_id, workspace__slug=slug, deleted_at__isnull=True).exists()
+        asset = (
+            FileAsset.all_objects.exclude(entity_type=LABI_CHAT_ATTACHMENT)
+            .filter(id=asset_id, workspace__slug=slug, deleted_at__isnull=True)
+            .exists()
+        )
         return Response({"exists": asset}, status=status.HTTP_200_OK)
 
 

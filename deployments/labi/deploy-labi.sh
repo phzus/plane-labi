@@ -22,11 +22,20 @@ cd "$STACK_DIR"
 exec 9>"$STACK_DIR/.deploy.lock"
 flock -n 9 || { echo "DEPLOY_BUSY" >&2; exit 3; }
 
+# compose.yml uses ${LABI_IMAGE_PREFIX:-makeplane/plane}-<frontend|live|backend>:${LABI_TAG:-v1.4.3};
+# empty values mean "official upstream images".
 prev_tag="$(grep -E '^LABI_TAG=' .env | cut -d= -f2- || true)"
-set_tag() {
-  if grep -qE '^LABI_TAG=' .env; then sed -i "s/^LABI_TAG=.*/LABI_TAG=$1/" .env; else printf 'LABI_TAG=%s\n' "$1" >> .env; fi
+prev_prefix="$(grep -E '^LABI_IMAGE_PREFIX=' .env | cut -d= -f2- || true)"
+
+set_var() {
+  if grep -qE "^$1=" .env; then
+    sed -i "s#^$1=.*#$1=$2#" .env
+  else
+    printf '%s=%s\n' "$1" "$2" >> .env
+  fi
   chmod 600 .env
 }
+set_images() { set_var LABI_IMAGE_PREFIX "$1"; set_var LABI_TAG "$2"; }
 
 smoke() {
   local base="https://${DOMAIN}"
@@ -42,17 +51,17 @@ smoke() {
 }
 
 rollback() {
-  echo "DEPLOY_FAILED: rolling back to ${prev_tag:-official images}" >&2
-  set_tag "$prev_tag" "$prev_prefix"
+  echo "DEPLOY_FAILED: rolling back to ${prev_prefix:-makeplane/plane}:${prev_tag:-v1.4.3}" >&2
+  set_images "$prev_prefix" "$prev_tag"
   docker compose up -d "${APP_SERVICES[@]}" || true
   exit 1
 }
 
-echo "DEPLOY_START $TAG (previous ${prev_tag:-none})"
+echo "DEPLOY_START $TAG (previous ${prev_prefix:-makeplane/plane}:${prev_tag:-v1.4.3})"
 python3 backup.py
 for image in frontend live backend; do docker pull -q "${IMAGE_PREFIX}-${image}:${TAG}"; done
 
-set_tag "$TAG" "$IMAGE_PREFIX"
+set_images "$IMAGE_PREFIX" "$TAG"
 # Migrations run with the new image before any running service is replaced (all Labi migrations are additive).
 docker compose run --rm migrator || rollback
 docker compose up -d "${APP_SERVICES[@]}" || rollback
