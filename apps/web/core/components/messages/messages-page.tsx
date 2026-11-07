@@ -48,7 +48,7 @@ export const MessagesPage = observer(function MessagesPage({ workspaceSlug, conv
     );
 
   return (
-    <div className="flex h-full w-full overflow-hidden rounded-lg border border-subtle bg-surface-1">
+    <div className="flex h-full w-full overflow-hidden bg-surface-1">
       <aside
         className={cn("flex w-full flex-shrink-0 flex-col border-subtle md:w-[340px] md:border-r", {
           "max-md:hidden": !!conversationId,
