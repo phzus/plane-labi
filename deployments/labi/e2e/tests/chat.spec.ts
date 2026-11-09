@@ -93,7 +93,10 @@ test("AC-1 + AC-4: conversa direta em tempo real, badge, Visto e Shift+Enter", a
   await shot(bruno, "ac1-03-ac4-bruno-badge-do-balao-subiu-sem-recarregar");
 
   await pill(bruno).click();
-  await panel(bruno).getByRole("button", { name: new RegExp(fullName("ana")) }).first().click();
+  await panel(bruno)
+    .getByRole("button", { name: new RegExp(fullName("ana")) })
+    .first()
+    .click();
   await expect(bubble(panel(bruno), first)).toBeVisible();
   await shot(bruno, "ac1-04-bruno-ve-a-mensagem");
 
@@ -262,10 +265,7 @@ test("AC-3: imagem e PDF aparecem e baixam; fora do grupo recebe 404 no download
     const res = await carla.request.get(href, { maxRedirects: 0 });
     expect(res.status(), `Carla GET ${href}`).toBe(404);
   }
-  fs.writeFileSync(
-    path.join(ART, "ac3-carla-404.txt"),
-    `Carla (fora do grupo) -> 404\n${pdfHref}\n${imageHref}\n`
-  );
+  fs.writeFileSync(path.join(ART, "ac3-carla-404.txt"), `Carla (fora do grupo) -> 404\n${pdfHref}\n${imageHref}\n`);
 });
 
 test("Responder e apagar: citação visível e 'Mensagem apagada' para todos", async ({ browser }) => {
@@ -312,7 +312,10 @@ test("AC-6: no celular (390x844) o painel ocupa a tela e o compositor aparece", 
   expect(box.height).toBeGreaterThanOrEqual(843);
   await expect(panel(ana)).toHaveAttribute("aria-modal", "true");
   await shot(ana, "ac6-01-celular-painel-tela-cheia");
-  await panel(ana).getByRole("button", { name: new RegExp(GROUP) }).first().click();
+  await panel(ana)
+    .getByRole("button", { name: new RegExp(GROUP) })
+    .first()
+    .click();
   await expect(composer(panel(ana))).toBeInViewport();
   await shot(ana, "ac6-02-celular-conversa-com-compositor");
   // The panel header (back / expand / close) must be reachable by touch, not covered by anything.
@@ -354,7 +357,10 @@ test("A11y: axe sem violações sérias/críticas na tela inteira e no painel", 
 
   await ana.goto(`/${SLUG}/notifications/`);
   await pill(ana).click();
-  await panel(ana).getByRole("button", { name: new RegExp(GROUP) }).first().click();
+  await panel(ana)
+    .getByRole("button", { name: new RegExp(GROUP) })
+    .first()
+    .click();
   await expect(composer(panel(ana))).toBeVisible();
   await shot(ana, "a11y-02-painel");
   const floating = await axeChat(ana, '[role="dialog"][aria-label="Mensagens"]', "painel");
@@ -386,4 +392,17 @@ test("Segurança: WebSocket sem cookie fecha 4401; origem estranha fecha 4403", 
   expect(noCookie.code).toBe(4401);
   expect(evil.code).toBe(4403);
   expect(good.frames[0], "controle positivo: sessão válida recebe 'ready'").toContain('"ready"');
+});
+
+test("Presença: seção Membros mostra quem está online e fica offline ao sair", async ({ browser }) => {
+  const ana = await as(browser, "ana");
+  const bruno = await as(browser, "bruno");
+  await ana.goto(`/${SLUG}/`);
+  await bruno.goto(`/${SLUG}/`);
+  const brunoRow = ana.getByLabel("Main sidebar").getByRole("listitem").filter({ hasText: "Bruno" });
+  await expect(brunoRow, "Bruno aparece online sem recarregar").toContainText("Online", { timeout: 20_000 });
+  await shot(ana, "presenca-01-bruno-online");
+  await bruno.close();
+  await expect(brunoRow, "Bruno fica offline ao fechar a aba").toContainText("Offline", { timeout: 30_000 });
+  await shot(ana, "presenca-02-bruno-offline");
 });

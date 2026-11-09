@@ -27,6 +27,10 @@ const REVALIDATE_MS = 10 * 60_000;
 const MAX_SOCKETS_PER_USER = 10;
 const MAX_CLIENT_FRAME_BYTES = 1024;
 const MAX_PENDING_PER_IP = 20;
+// Presence (sidebar "Membros"): one Redis key per connected user. The API decides who may read it.
+const PRESENCE_TTL_S = 90; // refreshed every heartbeat, so a crashed server clears itself
+const OFFLINE_GRACE_MS = 10_000; // a page reload must not flicker the dot
+const presenceKey = (userId: string) => `labi:presence:${userId}`;
 
 // Connections still authenticating, per client IP (each one costs an API call).
 const pendingByIp = new Map<string, number>();
@@ -45,6 +49,7 @@ type TClient = { ws: WebSocket; userId: string; cookie: string; alive: boolean; 
 
 class MessagingHub {
   private readonly clients = new Map<string, Set<TClient>>();
+  private readonly offlineTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private subscriber: Redis | null = null;
   private starting: Promise<void> | null = null;
 
@@ -70,6 +75,13 @@ class MessagingHub {
   add(client: TClient): boolean {
     const set = this.clients.get(client.userId) ?? new Set<TClient>();
     if (set.size >= MAX_SOCKETS_PER_USER) return false;
+    const pendingOffline = this.offlineTimers.get(client.userId);
+    if (pendingOffline) {
+      clearTimeout(pendingOffline);
+      this.offlineTimers.delete(client.userId);
+    } else if (set.size === 0) {
+      void this.setPresence(client.userId, true);
+    }
     set.add(client);
     this.clients.set(client.userId, set);
     return true;
@@ -79,7 +91,32 @@ class MessagingHub {
     const set = this.clients.get(client.userId);
     if (!set) return;
     set.delete(client);
-    if (set.size === 0) this.clients.delete(client.userId);
+    if (set.size > 0) return;
+    this.clients.delete(client.userId);
+    this.offlineTimers.set(
+      client.userId,
+      setTimeout(() => {
+        this.offlineTimers.delete(client.userId);
+        if (!this.clients.has(client.userId)) void this.setPresence(client.userId, false);
+      }, OFFLINE_GRACE_MS)
+    );
+  }
+
+  private async setPresence(userId: string, online: boolean) {
+    const redis = redisManager.getClient();
+    try {
+      if (online) await redis?.set(presenceKey(userId), "1", "EX", PRESENCE_TTL_S);
+      else await redis?.del(presenceKey(userId));
+    } catch (error) {
+      logger.error("MESSAGES: presence update failed", error);
+    }
+    // Carries no identity: each client asks the API, which applies the workspace permissions.
+    const frame = JSON.stringify({ type: "presence.changed" });
+    for (const set of this.clients.values()) {
+      for (const client of set) {
+        if (client.ws.readyState === client.ws.OPEN) client.ws.send(frame);
+      }
+    }
   }
 
   private dispatch(raw: string) {
@@ -101,7 +138,9 @@ class MessagingHub {
 
   private sweep() {
     const now = Date.now();
-    for (const set of this.clients.values()) {
+    const redis = redisManager.getClient();
+    for (const [userId, set] of this.clients) {
+      redis?.set(presenceKey(userId), "1", "EX", PRESENCE_TTL_S).catch(() => undefined);
       for (const client of set) {
         if (!client.alive) {
           client.ws.terminate();

@@ -7,7 +7,7 @@
 
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 // services
-import type { TChatMessage, TConversation, TSendMessagePayload } from "@/services/messages.service";
+import type { TChatMessage, TConversation, TPresenceMember, TSendMessagePayload } from "@/services/messages.service";
 import { MessagesService } from "@/services/messages.service";
 // store
 import type { CoreRootStore } from "./root.store";
@@ -52,6 +52,7 @@ export interface IMessagesStore {
   conversationMap: Record<string, TConversation>;
   threads: Record<string, TMessageThread>;
   conversationsLoaded: boolean;
+  presence: TPresenceMember[];
   panelOpen: boolean;
   panelConversationId: string | null;
   visibleConversationId: string | null;
@@ -62,6 +63,7 @@ export interface IMessagesStore {
   setPanel: (open: boolean, conversationId?: string | null) => void;
   setVisibleConversation: (id: string | null) => void;
   fetchConversations: () => Promise<void>;
+  fetchPresence: () => Promise<void>;
   fetchConversation: (id: string) => Promise<TConversation | undefined>;
   fetchLatest: (id: string) => Promise<void>;
   fetchOlder: (id: string) => Promise<void>;
@@ -84,6 +86,7 @@ export class MessagesStore implements IMessagesStore {
   conversationMap: Record<string, TConversation> = {};
   threads: Record<string, TMessageThread> = {};
   conversationsLoaded = false;
+  presence: TPresenceMember[] = [];
   panelOpen = false;
   panelConversationId: string | null = null;
   visibleConversationId: string | null = null;
@@ -106,6 +109,7 @@ export class MessagesStore implements IMessagesStore {
       conversationMap: observable,
       threads: observable,
       conversationsLoaded: observable.ref,
+      presence: observable.ref,
       panelOpen: observable.ref,
       panelConversationId: observable.ref,
       visibleConversationId: observable.ref,
@@ -139,6 +143,7 @@ export class MessagesStore implements IMessagesStore {
     this.conversationMap = {};
     this.threads = {};
     this.conversationsLoaded = false;
+    this.presence = [];
     // A conversation id from another workspace means nothing here (first load keeps the saved panel state).
     if (switching) this.setPanel(this.panelOpen, null);
   };
@@ -258,7 +263,21 @@ export class MessagesStore implements IMessagesStore {
   };
 
   /** The socket is best-effort: after (re)connect or tab focus, refetch from the source of truth. */
+  fetchPresence = async () => {
+    const slug = this.workspaceSlug;
+    if (!slug) return;
+    try {
+      const presence = await this.service.getPresence(slug);
+      if (slug === this.workspaceSlug) runInAction(() => (this.presence = presence));
+    } catch {
+      // guests get 403 and transient errors keep the last known list
+    }
+  };
+
+  private presenceTimer: ReturnType<typeof setTimeout> | undefined;
+
   resync = () => {
+    void this.fetchPresence();
     void this.fetchConversations().catch(() => undefined);
     if (this.visibleConversationId) void this.fetchLatest(this.visibleConversationId);
   };
@@ -403,6 +422,12 @@ export class MessagesStore implements IMessagesStore {
   // ---- realtime -----------------------------------------------------------------
 
   handleEvent = (event: TRealtimeEvent) => {
+    if (event.type === "presence.changed") {
+      // Several people can connect at once: one fetch per burst is enough.
+      clearTimeout(this.presenceTimer);
+      this.presenceTimer = setTimeout(() => void this.fetchPresence(), 1000);
+      return;
+    }
     const id = event.conversation_id;
     if (!id || event.workspace_slug !== this.workspaceSlug) return;
     switch (event.type) {

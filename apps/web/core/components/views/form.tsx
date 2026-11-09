@@ -13,14 +13,8 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { EmojiPicker, EmojiIconPickerTypes, Logo } from "@plane/propel/emoji-icon-picker";
 import { ViewsIcon } from "@plane/propel/icons";
-import type {
-  IIssueDisplayFilterOptions,
-  IIssueDisplayProperties,
-  IProjectView,
-  EIssueLayoutTypes,
-  IIssueFilters,
-} from "@plane/types";
-import { EViewAccess, EIssuesStoreType } from "@plane/types";
+import type { IIssueDisplayFilterOptions, IIssueDisplayProperties, IProjectView, IIssueFilters } from "@plane/types";
+import { EIssueLayoutTypes, EViewAccess, EIssuesStoreType } from "@plane/types";
 import { Input, TextArea } from "@plane/ui";
 import { getComputedDisplayFilters, getComputedDisplayProperties, getTabIndex } from "@plane/utils";
 // components
@@ -47,7 +41,8 @@ const DEFAULT_VALUES: Partial<IProjectView> = {
   description: "",
   access: EViewAccess.PUBLIC,
   display_properties: getComputedDisplayProperties(),
-  display_filters: { ...getComputedDisplayFilters(), group_by: "state" },
+  // Labi modification: new views open as Kanban (see LABI-CHANGES.md)
+  display_filters: { ...getComputedDisplayFilters(), layout: EIssueLayoutTypes.KANBAN, group_by: "state" },
 };
 
 export const ProjectViewForm = observer(function ProjectViewForm(props: Props) {

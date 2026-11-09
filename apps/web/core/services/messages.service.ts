@@ -32,6 +32,15 @@ export type TChatMessage = {
   client_payload?: TSendMessagePayload;
 };
 
+export type TPresenceMember = {
+  id: string;
+  display_name: string;
+  first_name: string;
+  last_name: string;
+  avatar_url: string;
+  is_online: boolean;
+};
+
 export type TChatMember = {
   id: string;
   display_name: string;
@@ -87,6 +96,10 @@ export class MessagesService extends APIService {
 
   private base(slug: string) {
     return `/api/workspaces/${slug}/messages`;
+  }
+
+  async getPresence(slug: string): Promise<TPresenceMember[]> {
+    return this.get(`${this.base(slug)}/presence/`).then((r) => r.data);
   }
 
   async listConversations(slug: string): Promise<TConversation[]> {

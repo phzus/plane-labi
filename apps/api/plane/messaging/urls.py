@@ -6,6 +6,7 @@ from . import views
 
 urlpatterns = [
     path("unread/", views.UnreadSummaryEndpoint.as_view(), name="labi-messaging-unread"),
+    path("presence/", views.PresenceEndpoint.as_view(), name="labi-messaging-presence"),
     path("conversations/", views.ConversationListEndpoint.as_view(), name="labi-messaging-conversations"),
     path(
         "conversations/<uuid:conversation_id>/",

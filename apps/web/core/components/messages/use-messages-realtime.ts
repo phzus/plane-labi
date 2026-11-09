@@ -84,12 +84,15 @@ export const useMessagesRealtime = (store: IMessagesStore, enabled: boolean) => 
       }
     };
 
+    // Safety net: if the realtime server restarts, presence keys expire without any event.
+    const presencePoll = window.setInterval(() => void store.fetchPresence(), 60000);
     connect();
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onVisibility);
     return () => {
       stopped = true;
       window.clearTimeout(timer);
+      window.clearInterval(presencePoll);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onVisibility);
       socket?.close();

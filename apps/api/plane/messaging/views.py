@@ -27,7 +27,9 @@ from rest_framework.throttling import UserRateThrottle
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.views.base import BaseAPIView
 from plane.db.models import FileAsset, Workspace, WorkspaceMember
+from plane.settings.redis import redis_instance
 from plane.settings.storage import S3Storage
+from plane.utils.exception_logger import log_exception
 
 from . import realtime
 from .models import ATTACHMENT_ENTITY_TYPE, MAX_GROUP_MEMBERS, Conversation, ConversationMember, Message
@@ -40,6 +42,7 @@ from .serializers import (
     attachment_payload,
     conversation_payload,
     message_payload,
+    user_payload,
 )
 
 CHAT_ROLES = [ROLE.ADMIN, ROLE.MEMBER]
@@ -374,6 +377,34 @@ class UnreadSummaryEndpoint(ChatAPIView):
             .count()
         )
         return Response({"conversations": total}, status=status.HTTP_200_OK)
+
+
+# ---- presence ----------------------------------------------------------------
+
+
+class PresenceEndpoint(ChatAPIView):
+    """Who is online right now, for the sidebar. Keys are written by apps/live while a socket is connected."""
+
+    @allow_permission(CHAT_ROLES, level="WORKSPACE")
+    def get(self, request, slug):
+        members = [
+            row.member
+            for row in WorkspaceMember.objects.filter(
+                workspace__slug=slug,
+                is_active=True,
+                role__gte=ROLE.MEMBER.value,
+                member__is_bot=False,
+                member__is_active=True,
+            ).select_related("member")
+        ]
+        try:
+            flags = redis_instance().mget([f"labi:presence:{m.id}" for m in members]) if members else []
+        except Exception as exc:  # no presence data must not break the sidebar
+            log_exception(exc)
+            flags = [None] * len(members)
+        data = [{**user_payload(m), "is_online": bool(flag)} for m, flag in zip(members, flags)]
+        data.sort(key=lambda m: (not m["is_online"], m["display_name"].lower()))
+        return Response(data, status=status.HTTP_200_OK)
 
 
 # ---- messages ----------------------------------------------------------------

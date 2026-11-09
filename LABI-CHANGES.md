@@ -19,6 +19,8 @@ It runs the internal project management of Agência Labi (self-hosted). Section 
 | 2026-11-06 | Team chat UI | `apps/web/**` (files marked: `messages/**`, workspace layout, routes, sidebar `sidebar-item.tsx` + `helper.tsx`, root store), `packages/constants/src/workspace.ts`, `packages/i18n/src/locales/{en,pt-BR}` | "Mensagens" sidebar item with unread badge, full page, and a floating chat widget |
 | 2026-11-06 | Source link | `apps/web/Dockerfile.web`, web help menu | AGPL source-code link to the deployed commit |
 | 2026-11-06 | CI/CD | `.github/workflows/labi-ci-cd.yml` (upstream workflows removed), `deployments/labi/deploy-labi.sh` | Tests, secret scan, images on GHCR, deploy with a restricted SSH key |
+| 2026-11-09 | Kanban as default | `packages/constants/src/issue/layout.ts`, `apps/api/plane/db/models/{project,issue,cycle,module,view}.py`, `apps/web/core/components/views/form.tsx`, `apps/api/plane/messaging/migrations/0002_kanban_default_layout.py` | Kanban is listed first and is the default layout (grouped by state); saved "list" layouts moved to Kanban once |
+| 2026-11-09 | Team presence | `apps/api/plane/messaging/views.py`, `apps/live/src/controllers/messages.controller.ts`, `apps/web/core/components/messages/sidebar-members.tsx`, `apps/web/app/(all)/[workspaceSlug]/(projects)/sidebar.tsx` | "Members" accordion below Projects with online/offline status, based on the chat WebSocket |
 | 2026-11-06 | Tests | `apps/api/plane/tests/contract/app/test_labi_messaging.py` | Contract and access-control tests for the chat |
 | 2026-11-06 | Browser QA | `deployments/labi/e2e/**`, `.dockerignore` | Playwright E2E on an ephemeral localhost stack (CI gate before deploy) |
 

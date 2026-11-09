@@ -869,6 +869,10 @@
     }
   },
   "labi_messages": {
+    "online": "Online",
+    "offline": "Offline",
+    "members_open": "Open members list",
+    "members_close": "Close members list",
     "title": "Messages",
     "new_conversation": "New message",
     "expand": "Open full screen",

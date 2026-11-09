@@ -9,6 +9,7 @@ import { observer } from "mobx-react";
 // plane helpers
 import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
 // components
+import { SidebarMembers } from "@/components/messages/sidebar-members"; // Labi modification: team presence
 import { SidebarWrapper } from "@/components/sidebar/sidebar-wrapper";
 import { SidebarFavoritesMenu } from "@/components/workspace/sidebar/favorites/favorites-menu";
 import { SidebarProjectsList } from "@/components/workspace/sidebar/projects-list";
@@ -38,6 +39,8 @@ export const AppSidebar = observer(function AppSidebar() {
       {canPerformWorkspaceMemberActions && !isFavoriteEmpty && <SidebarFavoritesMenu />}
       {/* Projects List */}
       <SidebarProjectsList />
+      {/* Labi modification: team presence (see LABI-CHANGES.md) */}
+      {canPerformWorkspaceMemberActions && <SidebarMembers />}
     </SidebarWrapper>
   );
 });

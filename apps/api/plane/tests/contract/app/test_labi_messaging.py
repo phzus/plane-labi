@@ -421,3 +421,56 @@ class TestReReviewRegressions:
         )
         asset.refresh_from_db()
         assert asset.project_id is None and asset.entity_type == ATTACHMENT_ENTITY_TYPE
+
+
+@pytest.mark.contract
+class TestPresence:
+    def test_lists_only_chat_members_with_online_first(self, workspace, team):
+        online_key = f"labi:presence:{team['caio'].id}".encode()
+        with mock.patch("plane.messaging.views.redis_instance") as redis:
+            redis.return_value.mget.side_effect = lambda keys: [
+                b"1" if k.encode() == online_key else None for k in keys
+            ]
+            res = _client(team["bia"]).get(_url(workspace, "presence/"))
+        assert res.status_code == status.HTTP_200_OK
+        ids = [m["id"] for m in res.data]
+        assert ids[0] == str(team["caio"].id) and res.data[0]["is_online"] is True
+        assert sum(m["is_online"] for m in res.data) == 1
+        # guests and people from other workspaces are never listed
+        assert str(team["gil"].id) not in ids and str(team["out"].id) not in ids
+        assert len(ids) == 4
+
+    def test_guest_and_outsider_are_refused(self, workspace, team):
+        assert _client(team["gil"]).get(_url(workspace, "presence/")).status_code == status.HTTP_403_FORBIDDEN
+        assert _client(team["out"]).get(_url(workspace, "presence/")).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_redis_down_shows_everyone_offline(self, workspace, team):
+        with mock.patch("plane.messaging.views.redis_instance", side_effect=ConnectionError("down")):
+            res = _client(team["bia"]).get(_url(workspace, "presence/"))
+        assert res.status_code == 200 and not any(m["is_online"] for m in res.data)
+
+
+@pytest.mark.unit
+def test_kanban_migration_only_changes_list_layouts():
+    import importlib
+
+    to_kanban = importlib.import_module("plane.messaging.migrations.0002_kanban_default_layout").to_kanban
+    assert to_kanban({"layout": "list", "group_by": None, "order_by": "x"}) == {
+        "layout": "kanban",
+        "group_by": "state",
+        "order_by": "x",
+    }
+    assert to_kanban({"layout": "list", "group_by": "priority"})["group_by"] == "priority"
+    assert to_kanban({})["layout"] == "kanban"
+    assert to_kanban({"layout": "calendar"}) is None
+    assert to_kanban({"layout": "kanban", "group_by": "state"}) is None
+
+
+@pytest.mark.unit
+def test_new_people_start_on_kanban_grouped_by_state():
+    from plane.db.models import cycle, issue, module, project, view
+
+    defaults = [m.get_default_display_filters() for m in (issue, cycle, module, view)]
+    defaults.append(project.get_default_props()["display_filters"])
+    for filters in defaults:
+        assert filters["layout"] == "kanban" and filters["group_by"] == "state"
