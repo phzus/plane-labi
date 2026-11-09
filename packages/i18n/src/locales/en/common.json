@@ -869,6 +869,12 @@
     }
   },
   "labi_messages": {
+    "online_now": "Online now",
+    "online_ago_minutes": "Active {count}m ago",
+    "online_ago_hours": "Active {count}h ago",
+    "online_ago_days": "Active {count}d ago",
+    "online_ago_weeks": "Active {count}w ago",
+    "group_online": "{count} online",
     "online": "Online",
     "offline": "Offline",
     "members_open": "Open members list",

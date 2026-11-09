@@ -405,4 +405,10 @@ test("Presença: seção Membros mostra quem está online e fica offline ao sair
   await bruno.close();
   await expect(brunoRow, "Bruno fica offline ao fechar a aba").toContainText("Offline", { timeout: 30_000 });
   await shot(ana, "presenca-02-bruno-offline");
+  // Chat header shows how long ago the person was online.
+  await openFromList(ana, fullName("bruno"));
+  await expect(ana.getByText(/Online há \d+ min/).first(), "tempo desde que ficou online").toBeVisible({
+    timeout: 20_000,
+  });
+  await shot(ana, "presenca-03-conversa-online-ha");
 });

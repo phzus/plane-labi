@@ -23,15 +23,26 @@ export function MemberAvatar({ member, size = 28 }: { member?: TChatMember; size
 }
 
 /** Single avatar for direct chats; two overlapped avatars for groups. */
-export function ConversationAvatar({
-  conversation,
-  meId,
-  size = 44,
-}: {
+export function ConversationAvatar(props: {
   conversation: TConversation;
   meId?: string;
   size?: number;
+  online?: boolean;
 }) {
+  const { online, size = 44 } = props;
+  return (
+    <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
+      <AvatarImages {...props} size={size} />
+      {online && (
+        <span className="absolute right-0 bottom-0 size-3 rounded-full border-2 border-[var(--bg-surface-1)] bg-[#22c55e]">
+          <span className="sr-only">Online</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+function AvatarImages({ conversation, meId, size }: { conversation: TConversation; meId?: string; size: number }) {
   const others = otherMembers(conversation, meId);
   if (conversation.kind === "direct" || others.length < 2)
     return <MemberAvatar member={others[0] ?? conversation.members[0]} size={size} />;

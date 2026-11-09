@@ -7,7 +7,7 @@
 
 import { Fragment, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import type { TChatMember, TChatMessage, TConversation } from "@/services/messages.service";
+import type { TChatMember, TChatMessage, TConversation, TPresenceMember } from "@/services/messages.service";
 
 export const MAX_BODY = 4000;
 export const MAX_FILES = 10;
@@ -73,6 +73,20 @@ export const relativeTime = (iso: string | null, locale: string) => {
 };
 
 const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+
+/** Instagram-style status: "Online agora", "Online há 2 min", "Online há 1 h". */
+export const presenceLabel = (presence: TPresenceMember | undefined, t: TFn) => {
+  if (presence?.is_online) return t("labi_messages.online_now");
+  if (!presence?.last_seen_at) return t("labi_messages.offline");
+  const minutes = Math.max(1, Math.round((Date.now() - new Date(presence.last_seen_at).getTime()) / 60000));
+  if (minutes < 60) return t("labi_messages.online_ago_minutes", { count: minutes });
+  if (minutes < 1440) return t("labi_messages.online_ago_hours", { count: Math.round(minutes / 60) });
+  if (minutes < 10080) return t("labi_messages.online_ago_days", { count: Math.round(minutes / 1440) });
+  return t("labi_messages.online_ago_weeks", { count: Math.round(minutes / 10080) });
+};
+
+export const onlineOthers = (c: TConversation, meId: string | undefined, presence: Map<string, TPresenceMember>) =>
+  otherMembers(c, meId).filter((m) => presence.get(m.id)?.is_online).length;
 
 /** Separator label: "Hoje, 14:32", "Qui, 22:49", "12 de out., 14:32". */
 export const separatorLabel = (iso: string, locale: string, t: TFn) => {

@@ -53,6 +53,7 @@ export interface IMessagesStore {
   threads: Record<string, TMessageThread>;
   conversationsLoaded: boolean;
   presence: TPresenceMember[];
+  presenceById: Map<string, TPresenceMember>;
   panelOpen: boolean;
   panelConversationId: string | null;
   visibleConversationId: string | null;
@@ -110,6 +111,7 @@ export class MessagesStore implements IMessagesStore {
       threads: observable,
       conversationsLoaded: observable.ref,
       presence: observable.ref,
+      presenceById: computed,
       panelOpen: observable.ref,
       panelConversationId: observable.ref,
       visibleConversationId: observable.ref,
@@ -122,6 +124,10 @@ export class MessagesStore implements IMessagesStore {
       discardMessage: action,
       handleEvent: action,
     });
+  }
+
+  get presenceById() {
+    return new Map(this.presence.map((member) => [member.id, member]));
   }
 
   get currentUserId() {

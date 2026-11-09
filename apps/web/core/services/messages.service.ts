@@ -39,6 +39,7 @@ export type TPresenceMember = {
   last_name: string;
   avatar_url: string;
   is_online: boolean;
+  last_seen_at: string | null;
 };
 
 export type TChatMember = {

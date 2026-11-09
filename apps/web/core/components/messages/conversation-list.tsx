@@ -10,13 +10,13 @@ import { useTranslation } from "@plane/i18n";
 import { cn } from "@plane/utils";
 import { useMessages } from "@/hooks/store/use-messages";
 import { ConversationAvatar } from "./conversation-avatar";
-import { conversationPreview, conversationTitle, relativeTime, useMinuteTick } from "./helpers";
+import { conversationPreview, conversationTitle, onlineOthers, relativeTime, useMinuteTick } from "./helpers";
 
 type Props = { selectedId?: string | null; onSelect: (id: string) => void };
 
 export const ConversationList = observer(function ConversationList({ selectedId, onSelect }: Props) {
   const { t, currentLocale } = useTranslation();
-  const { sortedConversations, conversationsLoaded, currentUserId } = useMessages();
+  const { sortedConversations, conversationsLoaded, currentUserId, presenceById } = useMessages();
   useMinuteTick();
 
   if (!conversationsLoaded) return <p className="p-4 text-13 text-tertiary">{t("labi_messages.loading")}</p>;
@@ -39,7 +39,11 @@ export const ConversationList = observer(function ConversationList({ selectedId,
                 { "bg-layer-transparent-selected": selectedId === c.id }
               )}
             >
-              <ConversationAvatar conversation={c} meId={currentUserId} />
+              <ConversationAvatar
+                conversation={c}
+                meId={currentUserId}
+                online={onlineOthers(c, currentUserId, presenceById) > 0}
+              />
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className={cn("truncate text-13", unread ? "font-semibold text-primary" : "text-primary")}>
                   {conversationTitle(c, currentUserId)}

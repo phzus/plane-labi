@@ -26,7 +26,7 @@ from rest_framework.throttling import UserRateThrottle
 
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.views.base import BaseAPIView
-from plane.db.models import FileAsset, Workspace, WorkspaceMember
+from plane.db.models import FileAsset, User, Workspace, WorkspaceMember
 from plane.settings.redis import redis_instance
 from plane.settings.storage import S3Storage
 from plane.utils.exception_logger import log_exception
@@ -383,10 +383,16 @@ class UnreadSummaryEndpoint(ChatAPIView):
 
 
 class PresenceEndpoint(ChatAPIView):
-    """Who is online right now, for the sidebar. Keys are written by apps/live while a socket is connected."""
+    """Who is online, and when each person was last seen. Online keys are written by apps/live.
+
+    Every open tab polls this at least once a minute, so the poll doubles as the "last seen" heartbeat. It lives in
+    the database because Redis is flushed on each API start (clear_cache).
+    """
 
     @allow_permission(CHAT_ROLES, level="WORKSPACE")
     def get(self, request, slug):
+        now = timezone.now()
+        User.objects.filter(id=request.user.id).update(last_active=now)
         members = [
             row.member
             for row in WorkspaceMember.objects.filter(
@@ -402,7 +408,11 @@ class PresenceEndpoint(ChatAPIView):
         except Exception as exc:  # no presence data must not break the sidebar
             log_exception(exc)
             flags = [None] * len(members)
-        data = [{**user_payload(m), "is_online": bool(flag)} for m, flag in zip(members, flags)]
+        # last_active defaults to the creation date: only trust it for people who have actually logged in.
+        data = [
+            {**user_payload(m), "is_online": bool(flag), "last_seen_at": m.last_active if m.last_login else None}
+            for m, flag in zip(members, flags)
+        ]
         data.sort(key=lambda m: (not m["is_online"], m["display_name"].lower()))
         return Response(data, status=status.HTTP_200_OK)
 

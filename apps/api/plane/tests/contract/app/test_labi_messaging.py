@@ -440,6 +440,18 @@ class TestPresence:
         assert str(team["gil"].id) not in ids and str(team["out"].id) not in ids
         assert len(ids) == 4
 
+    def test_last_seen_is_updated_by_the_poll_and_hidden_for_people_who_never_logged_in(self, workspace, team):
+        from django.utils import timezone
+
+        User.objects.filter(id=team["bia"].id).update(last_login=timezone.now())
+        with mock.patch("plane.messaging.views.redis_instance") as redis:
+            redis.return_value.mget.side_effect = lambda keys: [None for _ in keys]
+            before = timezone.now()
+            res = _client(team["bia"]).get(_url(workspace, "presence/"))
+        by_id = {m["id"]: m for m in res.data}
+        assert by_id[str(team["bia"].id)]["last_seen_at"] >= before
+        assert by_id[str(team["caio"].id)]["last_seen_at"] is None
+
     def test_guest_and_outsider_are_refused(self, workspace, team):
         assert _client(team["gil"]).get(_url(workspace, "presence/")).status_code == status.HTTP_403_FORBIDDEN
         assert _client(team["out"]).get(_url(workspace, "presence/")).status_code == status.HTTP_403_FORBIDDEN

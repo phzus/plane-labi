@@ -12,11 +12,11 @@ import { ArrowLeft, Settings2 } from "lucide-react";
 import { useTranslation } from "@plane/i18n";
 import { cn } from "@plane/utils";
 import { useMessages } from "@/hooks/store/use-messages";
-import type { TChatMessage } from "@/services/messages.service";
+import type { TChatMessage, TConversation } from "@/services/messages.service";
 import { Composer } from "./composer";
 import { ConversationAvatar } from "./conversation-avatar";
 import { GroupSettingsModal } from "./group-settings-modal";
-import { conversationTitle } from "./helpers";
+import { conversationTitle, onlineOthers, otherMembers, presenceLabel, useMinuteTick } from "./helpers";
 import { MessageLog } from "./message-log";
 
 export const headerIconButton =
@@ -31,6 +31,25 @@ type Props = {
   /** Called after the user leaves the group or the conversation disappears. */
   onGone: () => void;
 };
+
+/** Line under the title: "Online há 2 min" (direct) or "5 membros · 2 online" (group). */
+const ConversationStatus = observer(function ConversationStatus(props: { conversation: TConversation; meId?: string }) {
+  const { conversation, meId } = props;
+  const { t } = useTranslation();
+  const { presenceById } = useMessages();
+  useMinuteTick();
+  const online = onlineOthers(conversation, meId, presenceById);
+  const label =
+    conversation.kind === "group"
+      ? [
+          t("labi_messages.members_count", { count: conversation.members.length }),
+          online > 0 ? t("labi_messages.group_online", { count: online }) : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : presenceLabel(presenceById.get(otherMembers(conversation, meId)[0]?.id ?? ""), t);
+  return <span className="truncate text-11 text-tertiary">{label}</span>;
+});
 
 export const ConversationView = observer(function ConversationView(props: Props) {
   const { conversationId, onBack, backClassName, actions, onGone } = props;
@@ -102,14 +121,15 @@ export const ConversationView = observer(function ConversationView(props: Props)
             <ArrowLeft className="size-4" />
           </button>
         )}
-        <ConversationAvatar conversation={conversation} meId={meId} size={32} />
+        <ConversationAvatar
+          conversation={conversation}
+          meId={meId}
+          size={32}
+          online={onlineOthers(conversation, meId, store.presenceById) > 0}
+        />
         <div className="flex min-w-0 flex-1 flex-col">
           <h2 className="truncate text-13 font-semibold text-primary">{title}</h2>
-          {conversation.kind === "group" && (
-            <span className="truncate text-11 text-tertiary">
-              {t("labi_messages.members_count", { count: conversation.members.length })}
-            </span>
-          )}
+          <ConversationStatus conversation={conversation} meId={meId} />
         </div>
         {conversation.kind === "group" && (
           <button
