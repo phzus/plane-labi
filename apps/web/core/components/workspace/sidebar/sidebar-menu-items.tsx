@@ -12,9 +12,9 @@ import { Disclosure, Transition } from "@headlessui/react";
 import {
   WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS_LINKS,
   WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS,
-  WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS_LINKS,
   WORKSPACE_SIDEBAR_STATIC_PINNED_NAVIGATION_ITEMS_LINKS,
 } from "@plane/constants";
+import type { IWorkspaceSidebarNavigationItem } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
 import { ChevronRightIcon } from "@plane/propel/icons";
 import { cn } from "@plane/utils";
@@ -48,37 +48,18 @@ export const SidebarMenuItems = observer(function SidebarMenuItems() {
     toggleWorkspaceMenu(isOpen);
   };
 
-  // Filter static navigation items based on personal preferences
+  // Labi modification: fixed menu order requested by the agency (see LABI-CHANGES.md).
+  // ponytail: ignores the drag order from "Customize navigation"; use sort_order again if per-user order is needed.
   const filteredStaticNavigationItems = useMemo(() => {
-    const items = [...WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS_LINKS];
-    const personalItems: Array<(typeof items)[0] & { sort_order: number }> = [];
-
-    // Add personal items based on preferences with their sort_order
-    const stickiesItem = WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS["stickies"];
-    if (personalPreferences.items.stickies?.enabled && stickiesItem) {
-      personalItems.push({
-        ...stickiesItem,
-        sort_order: personalPreferences.items.stickies.sort_order,
-      });
-    }
-    if (personalPreferences.items.your_work?.enabled && WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS["your-work"]) {
-      personalItems.push({
-        ...WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS["your-work"],
-        sort_order: personalPreferences.items.your_work.sort_order,
-      });
-    }
-    if (personalPreferences.items.drafts?.enabled && WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS["drafts"]) {
-      personalItems.push({
-        ...WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS["drafts"],
-        sort_order: personalPreferences.items.drafts.sort_order,
-      });
-    }
-
-    // Sort personal items by sort_order
-    personalItems.sort((a, b) => a.sort_order - b.sort_order);
-
-    // Merge static items with sorted personal items
-    return [...items, ...personalItems];
+    const links = WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS;
+    const personal = personalPreferences.items;
+    return [
+      links["home"],
+      personal.your_work?.enabled ? links["your-work"] : undefined,
+      links["messages"],
+      personal.stickies?.enabled ? links["stickies"] : undefined,
+      personal.drafts?.enabled ? links["drafts"] : undefined,
+    ].filter((item): item is IWorkspaceSidebarNavigationItem => Boolean(item));
   }, [personalPreferences]);
 
   const sortedNavigationItems = useMemo(

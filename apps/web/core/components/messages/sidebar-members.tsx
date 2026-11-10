@@ -8,11 +8,18 @@ import { useEffect, useState } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
 import { Disclosure, Transition } from "@headlessui/react";
+import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
 import { IconButton } from "@plane/propel/icon-button";
-import { ChevronRightIcon } from "@plane/propel/icons";
+import { ChevronRightIcon, PlusIcon } from "@plane/propel/icons";
+import { TOAST_TYPE, setToast } from "@plane/propel/toast";
+import { Tooltip } from "@plane/propel/tooltip";
+import type { IWorkspaceBulkInviteFormData } from "@plane/types";
 import { cn } from "@plane/utils";
+import { SendWorkspaceInvitationModal } from "@/components/workspace/members";
+import { useMember } from "@/hooks/store/use-member";
 import { useMessages } from "@/hooks/store/use-messages";
+import { useUserPermissions } from "@/hooks/store/user";
 import { MemberAvatar } from "./conversation-avatar";
 import { memberName } from "./helpers";
 
@@ -32,6 +39,12 @@ export const SidebarMembers = observer(function SidebarMembers() {
   const { t } = useTranslation();
   const store = useMessages();
   const [isOpen, setIsOpen] = useState(readOpen);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const { allowPermissions } = useUserPermissions();
+  const {
+    workspace: { inviteMembersToWorkspace },
+  } = useMember();
+  const canInvite = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.WORKSPACE);
   const slug = workspaceSlug?.toString();
 
   useEffect(() => {
@@ -52,9 +65,33 @@ export const SidebarMembers = observer(function SidebarMembers() {
 
   if (store.presence.length === 0) return null;
   const toggleLabel = t(isOpen ? "labi_messages.members_close" : "labi_messages.members_open");
+  const inviteLabel = t("labi_messages.members_invite");
+
+  // Same flow as the workspace members settings page.
+  const handleInvite = async (data: IWorkspaceBulkInviteFormData) => {
+    try {
+      await inviteMembersToWorkspace(slug ?? "", data);
+      setInviteOpen(false);
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: t("workspace_settings.settings.members.invitations_sent_successfully"),
+      });
+    } catch (error: unknown) {
+      const message = (error as { error?: string } | undefined)?.error;
+      setToast({ type: TOAST_TYPE.ERROR, title: message ?? t("something_went_wrong_please_try_again") });
+      throw error;
+    }
+  };
 
   return (
     <Disclosure as="div" className="flex flex-col" defaultOpen={isOpen}>
+      {canInvite && (
+        <SendWorkspaceInvitationModal
+          isOpen={inviteOpen}
+          onClose={() => setInviteOpen(false)}
+          onSubmit={handleInvite}
+        />
+      )}
       <div className="group flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-placeholder hover:bg-layer-transparent-hover">
         <Disclosure.Button
           as="button"
@@ -65,7 +102,19 @@ export const SidebarMembers = observer(function SidebarMembers() {
         >
           <span className="text-13 font-semibold">{t("members")}</span>
         </Disclosure.Button>
-        <div className="flex items-center opacity-0 group-hover:opacity-100">
+        <div className="flex items-center gap-1">
+          {canInvite && (
+            <Tooltip tooltipHeading={inviteLabel} tooltipContent="">
+              <IconButton
+                variant="ghost"
+                size="sm"
+                icon={PlusIcon}
+                onClick={() => setInviteOpen(true)}
+                className="hidden text-placeholder group-hover:inline-flex"
+                aria-label={inviteLabel}
+              />
+            </Tooltip>
+          )}
           <IconButton
             variant="ghost"
             size="sm"

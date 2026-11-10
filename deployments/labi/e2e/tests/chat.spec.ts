@@ -412,3 +412,42 @@ test("Presença: seção Membros mostra quem está online e fica offline ao sair
   });
   await shot(ana, "presenca-03-conversa-online-ha");
 });
+
+test("Menu: ordem pedida, setinha de Membros visível e + convida no próprio lugar", async ({ browser }) => {
+  const ana = await as(browser, "ana");
+  await ana.goto(`/${SLUG}/`);
+  const sidebar = ana.getByLabel("Main sidebar");
+  await expect(sidebar.getByRole("listitem").filter({ hasText: "Online" }).first()).toBeVisible({ timeout: 20_000 });
+
+  const hrefs = await sidebar.locator("a[href]").evaluateAll((links) => links.map((a) => a.getAttribute("href") ?? ""));
+  const order = ["profile", "messages", "stickies", "drafts"];
+  const seen = hrefs.flatMap((href) => order.filter((name) => href.includes(`/${name}`)));
+  expect([...new Set(seen)], "ordem do menu após a Página inicial").toEqual(order);
+
+  // Arrow always visible (no hover), like Projects.
+  await expect(sidebar.getByRole("button", { name: "Fechar lista de membros" }).last()).toBeVisible();
+  await shot(ana, "menu-01-ordem-e-setinha");
+
+  await sidebar.getByRole("button", { name: "Fechar lista de membros" }).first().hover();
+  await sidebar.getByRole("button", { name: "Convidar pessoas" }).click();
+  const dialog = ana.getByRole("dialog");
+  await expect(dialog.getByText("Convidar pessoas para colaborar")).toBeVisible();
+  await shot(ana, "menu-02-modal-convidar");
+  const email = "convidado.e2e@example.com";
+  await dialog.locator("input").first().fill(email);
+  await dialog.locator("button[type=submit]").click();
+  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  const invites = await (await ana.request.get(`/api/workspaces/${SLUG}/invitations/`)).text();
+  expect(invites, "convite criado pelo + do menu").toContain(email);
+
+  const bruno = await as(browser, "bruno");
+  await bruno.goto(`/${SLUG}/`);
+  const brunoSidebar = bruno.getByLabel("Main sidebar");
+  await expect(brunoSidebar.getByRole("button", { name: "Fechar lista de membros" }).first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await brunoSidebar.getByRole("button", { name: "Fechar lista de membros" }).first().hover();
+  await expect(brunoSidebar.getByRole("button", { name: "Convidar pessoas" }), "membro comum não convida").toHaveCount(
+    0
+  );
+});

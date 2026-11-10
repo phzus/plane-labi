@@ -869,6 +869,7 @@
     }
   },
   "labi_messages": {
+    "members_invite": "Invite people",
     "online_now": "Online now",
     "online_ago_minutes": "Active {count}m ago",
     "online_ago_hours": "Active {count}h ago",
