@@ -436,7 +436,9 @@ test("Menu: ordem pedida, setinha de Membros visível e + convida no próprio lu
   const email = "convidado.e2e@example.com";
   await dialog.locator("input").first().fill(email);
   await dialog.locator("button[type=submit]").click();
-  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  // The dialog root has no size of its own, so "hidden" would pass before the request ends: wait for the toast.
+  await expect(ana.getByRole("heading", { name: "Convites enviados com sucesso" })).toBeVisible({ timeout: 15_000 });
+  await expect(dialog.getByText("Convidar pessoas para colaborar")).toBeHidden({ timeout: 5_000 });
   const invites = await (await ana.request.get(`/api/workspaces/${SLUG}/invitations/`)).text();
   expect(invites, "convite criado pelo + do menu").toContain(email);
 
